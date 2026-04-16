@@ -11,7 +11,7 @@ const FAMILY = [
   {
     email: 'martin@logifox.io',
     firstName: 'Martin',
-    password: 'm1983',
+    password: 'Mm7632362$', // admin — mot de passe original conserve
     role: 'ADMIN',
     profile: 'ADULT',
     mustChangePassword: false,
@@ -139,6 +139,3 @@ async function main() {
   console.log('✅ Seed terminé.');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ E
