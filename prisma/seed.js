@@ -126,9 +126,9 @@ async function main() {
     });
   }
 
-  // Les 3 autres : accès à Éducatif seulement
+  // Éducatif : enfants uniquement (pas Marie-Josée — app dédiée aux kids)
   const educatif = createdApps['educatif'];
-  for (const email of ['marie-josee@my-mission-control.com', 'alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
+  for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
     await prisma.userApp.upsert({
       where: { userId_appId: { userId: createdUsers[email].id, appId: educatif.id } },
       update: { hasAccess: true },
@@ -139,3 +139,4 @@ async function main() {
   console.log('✅ Seed terminé.');
 }
 
+main()
