@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum Profile {
+  ADULT
+  CHILD
+}
+
+model User {
+  id                  Int       @id @default(autoincrement())
+  email               String    @unique
+  firstName           String
+  password            String
+  role                Role      @default(MEMBER)
+  profile             Profile   @default(ADULT)
+  mustChangePassword  Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  apps                UserApp[]
+}
+
+model App {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  name        String
+  description String?
+  icon        String
+  color       String
+  isActive    Boolean   @default(true)
+  isMockup    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  users       UserApp[]
+}
+
+model UserApp {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  appId     Int
+  hasAccess Boolean  @default(true)
+  grantedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  app       App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, appId])
+}
