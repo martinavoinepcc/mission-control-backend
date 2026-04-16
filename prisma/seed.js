@@ -5,11 +5,13 @@ const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
+// Convention temporaire (Martin gérera ça plus tard) :
+// mot de passe = première lettre du prénom (minuscule) + année de naissance.
 const FAMILY = [
   {
     email: 'martin@logifox.io',
     firstName: 'Martin',
-    password: 'Mm7632362$',
+    password: 'm1983',
     role: 'ADMIN',
     profile: 'ADULT',
     mustChangePassword: false,
@@ -17,26 +19,26 @@ const FAMILY = [
   {
     email: 'marie-josee@my-mission-control.com',
     firstName: 'Marie-Josée',
-    password: 'MissionControl2024!',
+    password: 'm1979',
     role: 'MEMBER',
     profile: 'ADULT',
-    mustChangePassword: true,
+    mustChangePassword: false,
   },
   {
     email: 'alizee@my-mission-control.com',
     firstName: 'Alizée',
-    password: 'MissionControl2024!',
+    password: 'a2013',
     role: 'MEMBER',
     profile: 'CHILD',
-    mustChangePassword: true,
+    mustChangePassword: false,
   },
   {
     email: 'jackson@my-mission-control.com',
     firstName: 'Jackson',
-    password: 'MissionControl2024!',
+    password: 'j2015',
     role: 'MEMBER',
     profile: 'CHILD',
-    mustChangePassword: true,
+    mustChangePassword: false,
   },
 ];
 
@@ -45,7 +47,7 @@ const APPS = [
     slug: 'maison',
     name: 'Maison Intelligente',
     description: 'Contrôle et suivi de la maison connectée.',
-    icon: '🏠',
+    icon: 'house',
     color: '#3B82F6',
     isMockup: true,
   },
@@ -53,7 +55,7 @@ const APPS = [
     slug: 'assistant',
     name: 'Assistant IA',
     description: 'Assistant personnel propulsé par l\'IA.',
-    icon: '🤖',
+    icon: 'robot',
     color: '#8B5CF6',
     isMockup: true,
   },
@@ -61,7 +63,7 @@ const APPS = [
     slug: 'educatif',
     name: 'Éducatif',
     description: 'Programmes éducatifs pour enfants.',
-    icon: '📚',
+    icon: 'graduation-cap',
     color: '#10B981',
     isMockup: true,
   },
@@ -80,7 +82,8 @@ async function main() {
         firstName: u.firstName,
         role: u.role,
         profile: u.profile,
-        // on ne ré-hash le mot de passe que si inexistant à la 1re seed
+        password: hashed,
+        mustChangePassword: u.mustChangePassword,
       },
       create: {
         email: u.email,
@@ -138,9 +141,4 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error('❌ Erreur seed :', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+    console.error('❌ E
