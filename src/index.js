@@ -9,6 +9,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
+const keepAlive = require('./keep-alive');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -65,5 +66,4 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 API démarrée sur le port ${PORT}`);
-});
+  console.log(`🚀
