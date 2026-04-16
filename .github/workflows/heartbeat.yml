@@ -1,0 +1,88 @@
+name: Heartbeat — keep Render free service awake
+
+# Render free web services sleep after ~15 minutes of inactivity.
+# This workflow pings /health every 10 minutes to keep the backend warm.
+# It also runs on push so it wakes up immediately after a deploy.
+#
+# Free tier quota is 750 h/month — a 24/7 kept-alive service uses ~730 h,
+# which fits within the quota. If you upgrade to Starter, you can disable
+# this workflow.
+
+on:
+  schedule:
+    # Every 10 minutes (cron is UTC). 14 pings/hour × 24 h = under GitHub limit.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}   # allow manual trigger from GitHub UI
+  push:
+    branches: [main]
+
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Ping backend /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping primary health endpoint (with retries)
+        env:
+          URL: https://api.my-mission-control.com/health
+          FALLBACK_URL: https://mission-control-backend-gbtc.onrender.com/health
+        run: |
+          set -u
+          echo "→ Heartbeat at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          ping_once () {
+            local target="$1"
+            # -L  follow redirects
+            # --max-time 60  enough for cold starts on Render free (can take 40-60s)
+            # -w  print status + time
+            curl -sS -L --max-time 60 \
+                 -H 'User-Agent: mission-control-heartbeat/1.0' \
+                 -o /tmp/body.txt \
+                 -w 'HTTP %{http_code} in %{time_total}s\n' \
+                 "$target"
+          }
+
+          # Try up to 3 times against the primary URL, with backoff.
+          attempts=0
+          ok=0
+          for delay in 0 15 30; do
+            if [ "$delay" -gt 0 ]; then
+              echo "→ retry in ${delay}s"
+              sleep "$delay"
+            fi
+            attempts=$((attempts+1))
+            echo "→ attempt #$attempts: $URL"
+            if ping_once "$URL"; then
+              code=$(tail -n1 /tmp/body.txt 2>/dev/null || echo '')
+              # curl -w already printed; check exit + we'll re-run to grab status
+              status=$(curl -s -L --max-time 60 -o /dev/null -w '%{http_code}' "$URL" || echo '000')
+              echo "   status=$status"
+              if [ "$status" = "200" ] || [ "$status" = "204" ]; then
+                ok=1
+                break
+              fi
+            fi
+          done
+
+          # Fallback to the direct Render URL if DNS / custom domain not live yet
+          if [ "$ok" -ne 1 ]; then
+            echo "→ primary failed, trying fallback: $FALLBACK_URL"
+            status=$(curl -s -L --max-time 60 -o /dev/null -w '%{http_code}' "$FALLBACK_URL" || echo '000')
+            echo "   fallback status=$status"
+            if [ "$status" = "200" ] || [ "$status" = "204" ]; then
+              ok=1
+            fi
+          fi
+
+          if [ "$ok" -ne 1 ]; then
+            echo "::warning::Heartbeat failed on both URLs. Render may be waking up or deploying."
+            # Don't fail the workflow: we don't want a noisy alert storm while the
+            # service restarts. A single failure will simply be retried in 10 min.
+            exit 0
+          fi
+
+          echo "✓ Heartbeat OK"
