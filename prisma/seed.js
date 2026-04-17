@@ -46,11 +46,19 @@ const FAMILY = [
 const APPS = [
   {
     slug: 'maison',
-    name: 'Maison Intelligente',
-    description: 'Contrôle et suivi de la maison connectée.',
+    name: 'Contrôle Maison',
+    description: 'Dashboard Hubitat — température, éclairage, sécurité.',
     icon: 'house',
     color: '#3B82F6',
-    isMockup: true,
+    isMockup: false, // App vivante : redirige vers /apps/maison
+  },
+  {
+    slug: 'chalet',
+    name: 'Contrôle Chalet',
+    description: 'Dashboard Hubitat du chalet — préchauffe avant d\'arriver.',
+    icon: 'mountain-sun',
+    color: '#F59E0B',
+    isMockup: false, // App vivante : redirige vers /apps/chalet
   },
   {
     slug: 'assistant',
@@ -127,6 +135,17 @@ async function main() {
     });
   }
 
+  // Maison + Chalet : Martin + Marie-Josée (parents seulement)
+  for (const slug of ['maison', 'chalet']) {
+    const app = createdApps[slug];
+    if (!app) continue;
+    await prisma.userApp.upsert({
+      where: { userId_appId: { userId: createdUsers['marie-josee@my-mission-control.com'].id, appId: app.id } },
+      update: { hasAccess: true },
+      create: { userId: createdUsers['marie-josee@my-mission-control.com'].id, appId: app.id, hasAccess: true },
+    });
+  }
+
   // Éducatif : enfants uniquement (pas Marie-Josée — app dédiée aux kids)
   const educatif = createdApps['educatif'];
   for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
@@ -198,27 +217,4 @@ async function main() {
   // 5. Accès module : Jackson + Alizée (pas Marie-Josée — enfants seulement)
   for (const email of ['jackson@my-mission-control.com', 'alizee@my-mission-control.com']) {
     await prisma.moduleAccess.upsert({
-      where: { userId_moduleId: { userId: createdUsers[email].id, moduleId: mod.id } },
-      update: { hasAccess: true },
-      create: { userId: createdUsers[email].id, moduleId: mod.id, hasAccess: true },
-    });
-  }
-  // Martin aussi (admin, pour voir le contenu)
-  await prisma.moduleAccess.upsert({
-    where: { userId_moduleId: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id } },
-    update: { hasAccess: true },
-    create: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id, hasAccess: true },
-  });
-  console.log('✓ Accès module assignés (Jackson + Alizée + Martin)');
-
-  console.log('✅ Seed terminé.');
-}
-
-main()
-  .catch((e) => {
-    console.error('❌ Erreur seed :', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+      where: { userId_mod
