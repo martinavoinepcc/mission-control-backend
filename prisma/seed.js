@@ -1,7 +1,8 @@
-// Seed initial — crée les 4 comptes famille et les 3 apps mockup.
+// Seed initial — crée les comptes famille, les apps mockup ET le module Éducatif "Code Cadet".
 // Idempotent : peut être relancé sans doublons grâce aux upsert.
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const { module1: codeCadet } = require('../content/code-cadet');
 
 const prisma = new PrismaClient();
 
@@ -62,10 +63,10 @@ const APPS = [
   {
     slug: 'educatif',
     name: 'Éducatif',
-    description: 'Programmes éducatifs pour enfants.',
+    description: 'Code Cadet · Minecraft Protocol — prépare-toi au camp.',
     icon: 'graduation-cap',
     color: '#10B981',
-    isMockup: true,
+    isMockup: false, // App vivante : redirige vers /apps/educatif
   },
 ];
 
@@ -136,7 +137,88 @@ async function main() {
     });
   }
 
+  // 4. Éducatif — Module Code Cadet + 5 missions
+  console.log('📚 Seed éducatif : module Code Cadet...');
+  const modPayload = codeCadet.module;
+  const mod = await prisma.module.upsert({
+    where: { slug: modPayload.slug },
+    update: {
+      title: modPayload.title,
+      subtitle: modPayload.subtitle,
+      description: modPayload.description,
+      coverColor: modPayload.coverColor,
+      coverIcon: modPayload.coverIcon,
+      version: modPayload.version,
+      language: modPayload.language,
+      avatarKey: modPayload.avatarKey,
+      order: modPayload.order,
+      status: modPayload.status,
+    },
+    create: {
+      slug: modPayload.slug,
+      title: modPayload.title,
+      subtitle: modPayload.subtitle,
+      description: modPayload.description,
+      coverColor: modPayload.coverColor,
+      coverIcon: modPayload.coverIcon,
+      version: modPayload.version,
+      language: modPayload.language,
+      avatarKey: modPayload.avatarKey,
+      order: modPayload.order,
+      status: modPayload.status,
+    },
+  });
+  console.log(`✓ Module : ${mod.title}`);
+
+  let missionsCreated = 0;
+  let missionsUpdated = 0;
+  for (const l of codeCadet.lessons) {
+    const existing = await prisma.lesson.findUnique({
+      where: { moduleId_slug: { moduleId: mod.id, slug: l.slug } },
+    });
+    const data = {
+      chapter: l.chapter,
+      order: l.order,
+      kind: l.kind,
+      title: l.title,
+      subtitle: l.subtitle,
+      conceptKey: l.conceptKey,
+      data: l.data,
+    };
+    if (existing) {
+      await prisma.lesson.update({ where: { id: existing.id }, data });
+      missionsUpdated += 1;
+    } else {
+      await prisma.lesson.create({ data: { moduleId: mod.id, slug: l.slug, ...data } });
+      missionsCreated += 1;
+    }
+  }
+  console.log(`✓ Missions : ${missionsCreated} créées, ${missionsUpdated} mises à jour`);
+
+  // 5. Accès module : Jackson + Alizée (pas Marie-Josée — enfants seulement)
+  for (const email of ['jackson@my-mission-control.com', 'alizee@my-mission-control.com']) {
+    await prisma.moduleAccess.upsert({
+      where: { userId_moduleId: { userId: createdUsers[email].id, moduleId: mod.id } },
+      update: { hasAccess: true },
+      create: { userId: createdUsers[email].id, moduleId: mod.id, hasAccess: true },
+    });
+  }
+  // Martin aussi (admin, pour voir le contenu)
+  await prisma.moduleAccess.upsert({
+    where: { userId_moduleId: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id } },
+    update: { hasAccess: true },
+    create: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id, hasAccess: true },
+  });
+  console.log('✓ Accès module assignés (Jackson + Alizée + Martin)');
+
   console.log('✅ Seed terminé.');
 }
 
 main()
+  .catch((e) => {
+    console.error('❌ Erreur seed :', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

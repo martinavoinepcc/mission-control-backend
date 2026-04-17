@@ -17,17 +17,40 @@ enum Profile {
   CHILD
 }
 
+enum ModuleStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum LessonKind {
+  QUEST
+  BOSS
+  FREE
+  CEREMONY
+}
+
+enum ProgressStatus {
+  LOCKED
+  UNLOCKED
+  IN_PROGRESS
+  COMPLETED
+}
+
 model User {
-  id                  Int       @id @default(autoincrement())
-  email               String    @unique
+  id                  Int            @id @default(autoincrement())
+  email               String         @unique
   firstName           String
   password            String
-  role                Role      @default(MEMBER)
-  profile             Profile   @default(ADULT)
-  mustChangePassword  Boolean   @default(false)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  role                Role           @default(MEMBER)
+  profile             Profile        @default(ADULT)
+  mustChangePassword  Boolean        @default(false)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
   apps                UserApp[]
+  modules             ModuleAccess[]
+  progress            Progress[]
+  badges              UserBadge[]
 }
 
 model App {
@@ -53,4 +76,102 @@ model UserApp {
   app       App      @relation(fields: [appId], references: [id], onDelete: Cascade)
 
   @@unique([userId, appId])
+}
+
+// ============ ÉDUCATIF — architecture modulaire =============
+
+// Un module = un pack pédagogique installé (ex: Code Cadet · Minecraft Protocol)
+model Module {
+  id          Int            @id @default(autoincrement())
+  slug        String         @unique
+  title       String
+  subtitle    String?
+  description String?
+  coverColor  String?
+  coverIcon   String?
+  version     String         @default("1.0.0")
+  language    String         @default("fr-CA")
+  avatarKey   String?         // identifiant de la persona avatar (ex: rex-commandant)
+  status      ModuleStatus   @default(ACTIVE)
+  order       Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  lessons     Lesson[]
+  accesses   ModuleAccess[]
+}
+
+// Accès granulaire : qui peut voir/jouer ce module
+model ModuleAccess {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  moduleId   Int
+  hasAccess  Boolean  @default(true)
+  unlockedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+}
+
+// Une mission (quest) dans un chapitre d'un module
+model Lesson {
+  id         Int        @id @default(autoincrement())
+  moduleId   Int
+  slug       String
+  chapter    Int        @default(1)
+  order      Int        @default(0)
+  kind       LessonKind @default(QUEST)
+  title      String
+  subtitle   String?
+  conceptKey String?                              // ex: "sequence", "loop", "condition"
+  data       Json                                 // tout le contenu (briefing, world, toolbox, success, hints)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  module     Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progresses Progress[]
+
+  @@unique([moduleId, slug])
+  @@index([moduleId, chapter, order])
+}
+
+// Progression par utilisateur par leçon
+model Progress {
+  id            Int             @id @default(autoincrement())
+  userId        Int
+  lessonId      Int
+  status        ProgressStatus  @default(LOCKED)
+  stars         Int             @default(0)
+  hintsUsed     Int             @default(0)
+  attempts      Int             @default(0)
+  xpEarned      Int             @default(0)
+  savedCode     String?                           // Blockly XML / JSON en cours
+  firstDoneAt   DateTime?
+  lastPlayedAt  DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson        Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+}
+
+model Badge {
+  id       Int         @id @default(autoincrement())
+  slug     String      @unique
+  title    String
+  icon     String
+  criteria Json
+  users    UserBadge[]
+}
+
+model UserBadge {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  badgeId  Int
+  earnedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
 }

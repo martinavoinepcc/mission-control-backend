@@ -8,6 +8,8 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
+const educatifRoutes = require('./routes/educatif');
+const adminEducatifRoutes = require('./routes/admin-educatif');
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -46,6 +48,8 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/admin', adminRoutes);
+app.use('/educatif', educatifRoutes);
+app.use('/admin/educatif', adminEducatifRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });
