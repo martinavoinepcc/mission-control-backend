@@ -1,19 +1,16 @@
-// Seed initial — crée les comptes famille, les apps mockup ET le module Éducatif "Code Cadet".
-// Idempotent : peut être relancé sans doublons grâce aux upsert.
-// v2.0.0 (2026-04-17) : nettoyage auto des lessons obsolètes (curriculum Silica-aligned).
+// Seed initial — comptes famille + apps mockup. SCRAP Code Cadet (v3.0.0).
+// MCreator Academy = static frontend route, plus de seed Module/Lesson backend nécessaire.
+// Idempotent (upsert) + nettoyage explicite Code Cadet pour faire disparaitre l'ancien module.
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
-const { module1: codeCadet } = require('../content/code-cadet');
 
 const prisma = new PrismaClient();
 
-// Convention temporaire (Martin gérera ça plus tard) :
-// mot de passe = première lettre du prénom (minuscule) + année de naissance.
 const FAMILY = [
   {
     email: 'martin@logifox.io',
     firstName: 'Martin',
-    password: 'Mm7632362$', // admin — mot de passe original conserve
+    password: 'Mm7632362$',
     role: 'ADMIN',
     profile: 'ADULT',
     mustChangePassword: false,
@@ -51,7 +48,7 @@ const APPS = [
     description: 'Dashboard Hubitat — température, éclairage, sécurité.',
     icon: 'house',
     color: '#3B82F6',
-    isMockup: false, // App vivante : redirige vers /apps/maison
+    isMockup: false,
   },
   {
     slug: 'chalet',
@@ -59,7 +56,7 @@ const APPS = [
     description: 'Dashboard Hubitat du chalet — préchauffe avant d\'arriver.',
     icon: 'mountain-sun',
     color: '#F59E0B',
-    isMockup: false, // App vivante : redirige vers /apps/chalet
+    isMockup: false,
   },
   {
     slug: 'assistant',
@@ -72,15 +69,33 @@ const APPS = [
   {
     slug: 'educatif',
     name: 'Éducatif',
-    description: 'Code Cadet · Minecraft Protocol — prépare-toi au camp.',
+    description: 'MCreator Academy — préparation au camp Studio XP.',
     icon: 'graduation-cap',
     color: '#10B981',
-    isMockup: false, // App vivante : redirige vers /apps/educatif
+    isMockup: false,
   },
 ];
 
 async function main() {
-  console.log('🌱 Seed démarré...');
+  console.log('🌱 Seed démarré (v3.0.0 — sans Code Cadet)...');
+
+  // 0. CLEANUP : SCRAP Code Cadet une fois pour toute.
+  //    Cascade kills lessons + progress grâce au schema.prisma.
+  try {
+    const cc = await prisma.module.findUnique({ where: { slug: 'code-cadet' } });
+    if (cc) {
+      console.log('🧹 Suppression du module Code Cadet (legacy)…');
+      // ModuleAccess + Progress doivent être nettoyés manuellement si pas en cascade
+      await prisma.moduleAccess.deleteMany({ where: { moduleId: cc.id } }).catch(() => {});
+      await prisma.lesson.deleteMany({ where: { moduleId: cc.id } }).catch(() => {});
+      await prisma.module.delete({ where: { id: cc.id } });
+      console.log('✓ Code Cadet scrapé.');
+    } else {
+      console.log('✓ Code Cadet déjà absent.');
+    }
+  } catch (e) {
+    console.warn('⚠ Cleanup Code Cadet :', e.message);
+  }
 
   // 1. Users
   const createdUsers = {};
@@ -136,7 +151,7 @@ async function main() {
     });
   }
 
-  // Maison + Chalet : Martin + Marie-Josée (parents seulement)
+  // Maison + Chalet : Martin + Marie-Josée (parents)
   for (const slug of ['maison', 'chalet']) {
     const app = createdApps[slug];
     if (!app) continue;
@@ -147,7 +162,7 @@ async function main() {
     });
   }
 
-  // Éducatif : enfants uniquement (pas Marie-Josée — app dédiée aux kids)
+  // Éducatif : enfants uniquement (pas Marie-Josée)
   const educatif = createdApps['educatif'];
   for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
     await prisma.userApp.upsert({
@@ -157,99 +172,7 @@ async function main() {
     });
   }
 
-  // 4. Éducatif — Module Code Cadet + missions
-  console.log('📚 Seed éducatif : module Code Cadet...');
-  const modPayload = codeCadet.module;
-  const mod = await prisma.module.upsert({
-    where: { slug: modPayload.slug },
-    update: {
-      title: modPayload.title,
-      subtitle: modPayload.subtitle,
-      description: modPayload.description,
-      coverColor: modPayload.coverColor,
-      coverIcon: modPayload.coverIcon,
-      version: modPayload.version,
-      language: modPayload.language,
-      avatarKey: modPayload.avatarKey,
-      order: modPayload.order,
-      status: modPayload.status,
-    },
-    create: {
-      slug: modPayload.slug,
-      title: modPayload.title,
-      subtitle: modPayload.subtitle,
-      description: modPayload.description,
-      coverColor: modPayload.coverColor,
-      coverIcon: modPayload.coverIcon,
-      version: modPayload.version,
-      language: modPayload.language,
-      avatarKey: modPayload.avatarKey,
-      order: modPayload.order,
-      status: modPayload.status,
-    },
-  });
-  console.log(`✓ Module : ${mod.title} (v${mod.version})`);
-
-  // 4.1 Nettoyage : supprime les lessons dont le slug n'existe plus dans le nouveau content.
-  //     (cascade delete sur Progress grâce au schema.prisma).
-  const newSlugs = codeCadet.lessons.map((l) => l.slug);
-  const obsolete = await prisma.lesson.findMany({
-    where: { moduleId: mod.id, slug: { notIn: newSlugs } },
-    select: { id: true, slug: true },
-  });
-  if (obsolete.length > 0) {
-    console.log(`🧹 Missions obsolètes à nettoyer : ${obsolete.map((o) => o.slug).join(', ')}`);
-    const del = await prisma.lesson.deleteMany({
-      where: { moduleId: mod.id, slug: { notIn: newSlugs } },
-    });
-    console.log(`✓ ${del.count} missions supprimées (+ progressions associées en cascade)`);
-  } else {
-    console.log('✓ Aucune mission obsolète à nettoyer.');
-  }
-
-  // 4.2 Upsert des lessons du nouveau curriculum.
-  let missionsCreated = 0;
-  let missionsUpdated = 0;
-  for (const l of codeCadet.lessons) {
-    const existing = await prisma.lesson.findUnique({
-      where: { moduleId_slug: { moduleId: mod.id, slug: l.slug } },
-    });
-    const data = {
-      chapter: l.chapter,
-      order: l.order,
-      kind: l.kind,
-      title: l.title,
-      subtitle: l.subtitle,
-      conceptKey: l.conceptKey,
-      data: l.data,
-    };
-    if (existing) {
-      await prisma.lesson.update({ where: { id: existing.id }, data });
-      missionsUpdated += 1;
-    } else {
-      await prisma.lesson.create({ data: { moduleId: mod.id, slug: l.slug, ...data } });
-      missionsCreated += 1;
-    }
-  }
-  console.log(`✓ Missions : ${missionsCreated} créées, ${missionsUpdated} mises à jour (total ${codeCadet.lessons.length})`);
-
-  // 5. Accès module : Jackson + Alizée (pas Marie-Josée — enfants seulement)
-  for (const email of ['jackson@my-mission-control.com', 'alizee@my-mission-control.com']) {
-    await prisma.moduleAccess.upsert({
-      where: { userId_moduleId: { userId: createdUsers[email].id, moduleId: mod.id } },
-      update: { hasAccess: true },
-      create: { userId: createdUsers[email].id, moduleId: mod.id, hasAccess: true },
-    });
-  }
-  // Martin aussi (admin, pour voir le contenu)
-  await prisma.moduleAccess.upsert({
-    where: { userId_moduleId: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id } },
-    update: { hasAccess: true },
-    create: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id, hasAccess: true },
-  });
-  console.log('✓ Accès module assignés (Jackson + Alizée + Martin)');
-
-  console.log('✅ Seed terminé.');
+  console.log('✅ Seed terminé. Aucun module backend — MCreator Academy est full-frontend.');
 }
 
 main()
