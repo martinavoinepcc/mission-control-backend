@@ -5,7 +5,7 @@
   "description": "My Mission Control — backend API (Express + Prisma + JWT)",
   "main": "src/index.js",
   "scripts": {
-    "start": "prisma migrate deploy && node prisma/seed.js && node src/index.js",
+    "start": "prisma db push --accept-data-loss --skip-generate && node prisma/seed.js && node src/index.js",
     "dev": "node --watch src/index.js",
     "seed": "node prisma/seed.js",
     "postinstall": "prisma generate"
@@ -22,4 +22,8 @@
   },
   "devDependencies": {
     "prisma": "^5.22.0"
- 
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
