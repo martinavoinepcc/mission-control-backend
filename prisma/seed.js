@@ -217,4 +217,27 @@ async function main() {
   // 5. Accès module : Jackson + Alizée (pas Marie-Josée — enfants seulement)
   for (const email of ['jackson@my-mission-control.com', 'alizee@my-mission-control.com']) {
     await prisma.moduleAccess.upsert({
-      where: { userId_mod
+      where: { userId_moduleId: { userId: createdUsers[email].id, moduleId: mod.id } },
+      update: { hasAccess: true },
+      create: { userId: createdUsers[email].id, moduleId: mod.id, hasAccess: true },
+    });
+  }
+  // Martin aussi (admin, pour voir le contenu)
+  await prisma.moduleAccess.upsert({
+    where: { userId_moduleId: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id } },
+    update: { hasAccess: true },
+    create: { userId: createdUsers['martin@logifox.io'].id, moduleId: mod.id, hasAccess: true },
+  });
+  console.log('✓ Accès module assignés (Jackson + Alizée + Martin)');
+
+  console.log('✅ Seed terminé.');
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Erreur seed :', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
