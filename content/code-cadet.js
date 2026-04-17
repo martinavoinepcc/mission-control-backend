@@ -1,9 +1,8 @@
 // Content pack : Code Cadet · Minecraft Protocol — Module 1 (v2.0.0, Silica-aligned)
-// 9 missions en 3 chapitres, alignées sur le curriculum du camp Silica Studio été 2026.
+// 6 missions en 2 chapitres, alignées sur le curriculum du camp Silica Studio été 2026.
 //
-// CHAPITRE 1 — Cours 0 Minecraft (3) : prépare Jackson à être autonome en jeu.
-// CHAPITRE 2 — Fondations Redstone (5) : mirroir 1:1 des modules du camp.
-// CHAPITRE 3 — Défi Master Codeur (1) : boss final.
+// CHAPITRE 1 — Fondations Redstone (5) : mirroir 1:1 des modules du camp.
+// CHAPITRE 2 — Défi Master Codeur (1) : boss final.
 //
 // Avatar : Commandant Rex (QC, francophone).
 //
@@ -32,10 +31,10 @@ const module1 = {
     title: 'Code Cadet',
     subtitle: 'Minecraft Protocol',
     description:
-      "Prépare-toi au camp Silica Studio. Avec le Commandant Rex, tu apprends les bases du code (Cours 0) puis les Fondations Redstone : source, puissance, logique ET/OU, pistons, mise en commun. Rien ne bouge tant que TU n'écris pas le code.",
+      "Prépare-toi au camp Silica Studio. Avec le Commandant Rex, tu apprends les Fondations Redstone : source, puissance, logique ET/OU, pistons, mise en commun. Rien ne bouge tant que TU n'écris pas le code.",
     coverColor: '#4ADE80',
     coverIcon: 'cube',
-    version: '2.0.0',
+    version: '2.1.0',
     language: 'fr-CA',
     avatarKey: 'rex-commandant',
     order: 1,
@@ -43,212 +42,13 @@ const module1 = {
   },
   lessons: [
     // ============================================================
-    // CHAPITRE 1 — COURS 0 MINECRAFT
+    // CHAPITRE 1 — FONDATIONS REDSTONE
     // ============================================================
 
-    // === MISSION 1 — BOUGER DANS LE MONDE ===
-    {
-      slug: 'cours0-bouger',
-      chapter: 1,
-      order: 1,
-      kind: 'QUEST',
-      title: 'Bouger dans le monde',
-      subtitle: "Ton tout premier ordre : avancer.",
-      conceptKey: 'sequence',
-      data: {
-        briefing: {
-          text:
-            "Salut cadet. Bienvenue au Cours 0. Au camp Silica, la première chose qu'on apprend c'est BOUGER. Ici tu vas me donner l'ordre d'avancer d'une case vers le cristal bleu. Un bloc Au début, un bloc Avancer. Go.",
-          avatarClip: 'rex-intro-c0m1',
-        },
-        world: {
-          tileset: 'plaine',
-          cols: 5,
-          rows: 3,
-          start: { x: 1, y: 1, dir: 'east' },
-          goal: { x: 2, y: 1 },
-          items: [{ type: 'crystal', x: 2, y: 1, color: 'cyan' }],
-          obstacles: [],
-          backgroundMusic: 'plaine-calm',
-        },
-        toolbox: {
-          categories: [
-            { name: 'Événements', colour: '#F59E0B', blocks: [{ type: 'event_start' }] },
-            {
-              name: 'Mouvement',
-              colour: '#60A5FA',
-              blocks: [{ type: 'rex_move_forward' }],
-            },
-          ],
-        },
-        starter: null,
-        success: {
-          type: 'reachGoal',
-          rules: { reach: { x: 2, y: 1 } },
-          maxBlocks: 2,
-        },
-        hints: [
-          "Commence par le bloc orange Au début. C'est toujours la 1re pièce.",
-          "Maintenant le bloc bleu Avancer, collé dessous.",
-          "Rex regarde vers l'est (→). Un seul Avancer suffit pour toucher le cristal.",
-          "Solution : Au début + Avancer. 2 blocs. Clic ▶ Jouer.",
-        ],
-        xpMax: 20,
-        stars: {
-          gold: { maxBlocks: 2 },
-          silver: { maxBlocks: 3 },
-          bronze: { maxBlocks: 5 },
-        },
-        rexLines: {
-          intro: "Premier ordre. Avance d'une case vers le cristal bleu.",
-          onSuccess: "Bravo cadet. Tu viens de contrôler un personnage avec du code. Comme à Silica.",
-          onError: "Presque. Compte les cases : une seule suffit.",
-        },
-      },
-    },
-
-    // === MISSION 2 — POSER ET CASSER (simulé par navigation) ===
-    {
-      slug: 'cours0-poser-casser',
-      chapter: 1,
-      order: 2,
-      kind: 'QUEST',
-      title: 'Poser et casser',
-      subtitle: "Tourner pour atteindre deux cristaux.",
-      conceptKey: 'action',
-      data: {
-        briefing: {
-          text:
-            "Au camp Silica, tu apprendras à poser et casser des blocs. Ici, on simule ça avec des cristaux à collecter. Deux cristaux : un devant, un à ta droite. Va les chercher tous les deux.",
-          avatarClip: 'rex-intro-c0m2',
-        },
-        world: {
-          tileset: 'plaine',
-          cols: 5,
-          rows: 5,
-          start: { x: 1, y: 2, dir: 'east' },
-          goal: { x: 2, y: 3 },
-          items: [
-            { type: 'crystal', x: 2, y: 2, color: 'green' },
-            { type: 'crystal', x: 2, y: 3, color: 'cyan' },
-          ],
-          obstacles: [],
-          backgroundMusic: 'plaine-calm',
-        },
-        toolbox: {
-          categories: [
-            { name: 'Événements', colour: '#F59E0B', blocks: [{ type: 'event_start' }] },
-            {
-              name: 'Mouvement',
-              colour: '#60A5FA',
-              blocks: [
-                { type: 'rex_move_forward' },
-                { type: 'rex_turn_right' },
-                { type: 'rex_turn_left' },
-              ],
-            },
-          ],
-        },
-        starter: null,
-        success: {
-          type: 'collectAll',
-          rules: { collect: ['crystal-2-2', 'crystal-2-3'] },
-          maxBlocks: 4,
-        },
-        hints: [
-          "Rex regarde vers l'est. Le 1er cristal (vert) est juste devant.",
-          "Après le 1er, tourne à droite pour faire face au sud, puis avance.",
-          "Ordre : Avancer (prend le vert) → Tourner à droite → Avancer (prend le bleu).",
-          "Solution : Au début + Avancer + Tourner à droite + Avancer. 4 blocs.",
-        ],
-        xpMax: 25,
-        stars: {
-          gold: { maxBlocks: 4 },
-          silver: { maxBlocks: 5 },
-          bronze: { maxBlocks: 7 },
-        },
-        rexLines: {
-          intro: "Deux cristaux à ramasser. Pense à tourner.",
-          onSuccess: "Excellent. Tu combines déjà plusieurs ordres. C'est ça le code.",
-          onError: "Rex rate un cristal. Vérifie l'ordre des blocs.",
-        },
-      },
-    },
-
-    // === MISSION 3 — INTERAGIR AVEC L'ENVIRONNEMENT ===
-    {
-      slug: 'cours0-interagir',
-      chapter: 1,
-      order: 3,
-      kind: 'QUEST',
-      title: 'Interagir avec l\'environnement',
-      subtitle: "Ta 1re boucle : répéter pour aller loin.",
-      conceptKey: 'repetition',
-      data: {
-        briefing: {
-          text:
-            "À Silica on répète souvent la même action. Au lieu de poser 3 fois Avancer, on utilise une BOUCLE : Répéter 3 fois. Essaie-la ici — le cristal doré est à 3 cases devant.",
-          avatarClip: 'rex-intro-c0m3',
-        },
-        world: {
-          tileset: 'foret',
-          cols: 6,
-          rows: 3,
-          start: { x: 0, y: 1, dir: 'east' },
-          goal: { x: 3, y: 1 },
-          items: [{ type: 'crystal', x: 3, y: 1, color: 'gold' }],
-          obstacles: [],
-          backgroundMusic: 'foret-mysterieux',
-        },
-        toolbox: {
-          categories: [
-            { name: 'Événements', colour: '#F59E0B', blocks: [{ type: 'event_start' }] },
-            {
-              name: 'Mouvement',
-              colour: '#60A5FA',
-              blocks: [{ type: 'rex_move_forward' }],
-            },
-            {
-              name: 'Boucles',
-              colour: '#A855F7',
-              blocks: [{ type: 'rex_repeat', params: { times: 3 } }],
-            },
-          ],
-        },
-        starter: null,
-        success: {
-          type: 'reachGoal',
-          rules: { reach: { x: 3, y: 1 } },
-          maxBlocks: 5,
-        },
-        hints: [
-          "Tu peux faire 3 Avancer collés — ça marche mais c'est long.",
-          "Essaie le bloc violet Répéter 3 fois. Mets Avancer à l'intérieur.",
-          "Règle le nombre de répétitions à 3.",
-          "Solution optimale : Au début + Répéter 3 fois { Avancer }. 3 blocs, 3 étoiles.",
-        ],
-        xpMax: 30,
-        stars: {
-          gold: { maxBlocks: 3 },
-          silver: { maxBlocks: 4 },
-          bronze: { maxBlocks: 6 },
-        },
-        rexLines: {
-          intro: "3 cases. Utilise Répéter pour économiser du code.",
-          onSuccess: "BOUCLE maîtrisée. Tu viens de découvrir un des super-pouvoirs des codeurs.",
-          onError: "Compte les cases : exactement 3 Avancer, ni plus ni moins.",
-        },
-      },
-    },
-
-    // ============================================================
-    // CHAPITRE 2 — FONDATIONS REDSTONE
-    // ============================================================
-
-    // === MISSION 4 — RS·M1 : DÉCOUVERTE (source → fil → cible) ===
+    // === MISSION 1 — RS·M1 : DÉCOUVERTE (source → fil → cible) ===
     {
       slug: 'redstone-m1-decouverte',
-      chapter: 2,
+      chapter: 1,
       order: 1,
       kind: 'QUEST',
       title: 'RS·M1 — Découverte Redstone',
@@ -311,10 +111,10 @@ const module1 = {
       },
     },
 
-    // === MISSION 5 — RS·M2 : PUISSANCE (long fil, boucle obligatoire) ===
+    // === MISSION 2 — RS·M2 : PUISSANCE (long fil, boucle obligatoire) ===
     {
       slug: 'redstone-m2-puissance',
-      chapter: 2,
+      chapter: 1,
       order: 2,
       kind: 'QUEST',
       title: 'RS·M2 — Puissance du courant',
@@ -377,10 +177,10 @@ const module1 = {
       },
     },
 
-    // === MISSION 6 — RS·M3 : LOGIQUE (ET — deux cibles à activer) ===
+    // === MISSION 3 — RS·M3 : LOGIQUE (ET — deux cibles à activer) ===
     {
       slug: 'redstone-m3-logique',
-      chapter: 2,
+      chapter: 1,
       order: 3,
       kind: 'QUEST',
       title: 'RS·M3 — Logique ET',
@@ -450,10 +250,10 @@ const module1 = {
       },
     },
 
-    // === MISSION 7 — RS·M4 : PISTONS & TIMING (éviter la lave) ===
+    // === MISSION 4 — RS·M4 : PISTONS & TIMING (éviter la lave) ===
     {
       slug: 'redstone-m4-timing',
-      chapter: 2,
+      chapter: 1,
       order: 4,
       kind: 'QUEST',
       title: 'RS·M4 — Pistons et timing',
@@ -528,10 +328,10 @@ const module1 = {
       },
     },
 
-    // === MISSION 8 — RS·M5 : MISE EN COMMUN (tout ensemble) ===
+    // === MISSION 5 — RS·M5 : MISE EN COMMUN (tout ensemble) ===
     {
       slug: 'redstone-m5-mise-en-commun',
-      chapter: 2,
+      chapter: 1,
       order: 5,
       kind: 'QUEST',
       title: 'RS·M5 — Mise en commun',
@@ -602,13 +402,13 @@ const module1 = {
     },
 
     // ============================================================
-    // CHAPITRE 3 — DÉFI MASTER CODEUR
+    // CHAPITRE 2 — DÉFI MASTER CODEUR
     // ============================================================
 
-    // === MISSION 9 — BOSS : DÉFI MASTER CODEUR ===
+    // === MISSION 6 — BOSS : DÉFI MASTER CODEUR ===
     {
       slug: 'defi-master-codeur',
-      chapter: 3,
+      chapter: 2,
       order: 1,
       kind: 'BOSS',
       title: 'Défi Master Codeur',
