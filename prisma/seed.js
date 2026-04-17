@@ -1,5 +1,6 @@
 // Seed initial — crée les comptes famille, les apps mockup ET le module Éducatif "Code Cadet".
 // Idempotent : peut être relancé sans doublons grâce aux upsert.
+// v2.0.0 (2026-04-17) : nettoyage auto des lessons obsolètes (curriculum Silica-aligned).
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const { module1: codeCadet } = require('../content/code-cadet');
@@ -156,7 +157,7 @@ async function main() {
     });
   }
 
-  // 4. Éducatif — Module Code Cadet + 5 missions
+  // 4. Éducatif — Module Code Cadet + missions
   console.log('📚 Seed éducatif : module Code Cadet...');
   const modPayload = codeCadet.module;
   const mod = await prisma.module.upsert({
@@ -187,8 +188,26 @@ async function main() {
       status: modPayload.status,
     },
   });
-  console.log(`✓ Module : ${mod.title}`);
+  console.log(`✓ Module : ${mod.title} (v${mod.version})`);
 
+  // 4.1 Nettoyage : supprime les lessons dont le slug n'existe plus dans le nouveau content.
+  //     (cascade delete sur Progress grâce au schema.prisma).
+  const newSlugs = codeCadet.lessons.map((l) => l.slug);
+  const obsolete = await prisma.lesson.findMany({
+    where: { moduleId: mod.id, slug: { notIn: newSlugs } },
+    select: { id: true, slug: true },
+  });
+  if (obsolete.length > 0) {
+    console.log(`🧹 Missions obsolètes à nettoyer : ${obsolete.map((o) => o.slug).join(', ')}`);
+    const del = await prisma.lesson.deleteMany({
+      where: { moduleId: mod.id, slug: { notIn: newSlugs } },
+    });
+    console.log(`✓ ${del.count} missions supprimées (+ progressions associées en cascade)`);
+  } else {
+    console.log('✓ Aucune mission obsolète à nettoyer.');
+  }
+
+  // 4.2 Upsert des lessons du nouveau curriculum.
   let missionsCreated = 0;
   let missionsUpdated = 0;
   for (const l of codeCadet.lessons) {
@@ -212,7 +231,7 @@ async function main() {
       missionsCreated += 1;
     }
   }
-  console.log(`✓ Missions : ${missionsCreated} créées, ${missionsUpdated} mises à jour`);
+  console.log(`✓ Missions : ${missionsCreated} créées, ${missionsUpdated} mises à jour (total ${codeCadet.lessons.length})`);
 
   // 5. Accès module : Jackson + Alizée (pas Marie-Josée — enfants seulement)
   for (const email of ['jackson@my-mission-control.com', 'alizee@my-mission-control.com']) {
