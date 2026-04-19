@@ -30,12 +30,14 @@ router.get('/me', auth, async (req, res) => {
       color: ua.app.color,
       isMockup: ua.app.isMockup,
       isActive: ua.app.isActive,
+      realm: ua.app.realm,
     }));
 
     return res.json({
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         role: user.role,
         profile: user.profile,

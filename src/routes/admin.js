@@ -23,6 +23,7 @@ router.get('/users', async (req, res) => {
     const result = users.map((u) => ({
       id: u.id,
       email: u.email,
+      username: u.username,
       firstName: u.firstName,
       role: u.role,
       profile: u.profile,
@@ -34,6 +35,7 @@ router.get('/users', async (req, res) => {
         name: ua.app.name,
         icon: ua.app.icon,
         color: ua.app.color,
+        realm: ua.app.realm,
         hasAccess: ua.hasAccess,
       })),
     }));

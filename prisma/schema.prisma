@@ -17,6 +17,11 @@ enum Profile {
   CHILD
 }
 
+enum Realm {
+  FAMILY
+  WORK
+}
+
 enum ModuleStatus {
   ACTIVE
   DRAFT
@@ -63,6 +68,7 @@ model App {
   color       String
   isActive    Boolean   @default(true)
   isMockup    Boolean   @default(true)
+  realm       Realm     @default(FAMILY)
   createdAt   DateTime  @default(now())
   users       UserApp[]
 }

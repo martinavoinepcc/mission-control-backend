@@ -46,6 +46,7 @@ const FAMILY = [
 ];
 
 const APPS = [
+  // ───── Famille ─────
   {
     slug: 'maison',
     name: 'Contrôle Maison',
@@ -53,6 +54,7 @@ const APPS = [
     icon: 'house',
     color: '#3B82F6',
     isMockup: false,
+    realm: 'FAMILY',
   },
   {
     slug: 'chalet',
@@ -61,6 +63,7 @@ const APPS = [
     icon: 'mountain-sun',
     color: '#F59E0B',
     isMockup: false,
+    realm: 'FAMILY',
   },
   {
     slug: 'assistant',
@@ -69,6 +72,7 @@ const APPS = [
     icon: 'robot',
     color: '#8B5CF6',
     isMockup: true,
+    realm: 'FAMILY',
   },
   {
     slug: 'educatif',
@@ -77,6 +81,26 @@ const APPS = [
     icon: 'graduation-cap',
     color: '#10B981',
     isMockup: false,
+    realm: 'FAMILY',
+  },
+  // ───── Travail (admin uniquement) ─────
+  {
+    slug: 'logifox',
+    name: 'Logifox',
+    description: 'Espace de travail Logifox — bientôt.',
+    icon: 'briefcase',
+    color: '#64748B',
+    isMockup: true,
+    realm: 'WORK',
+  },
+  {
+    slug: 'qscale',
+    name: 'QScale',
+    description: 'Projet QScale — bientôt.',
+    icon: 'chart-line',
+    color: '#0EA5E9',
+    isMockup: true,
+    realm: 'WORK',
   },
 ];
 
@@ -140,6 +164,7 @@ async function main() {
         icon: a.icon,
         color: a.color,
         isMockup: a.isMockup,
+        realm: a.realm,
       },
       create: a,
     });
