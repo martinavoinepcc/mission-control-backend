@@ -83,16 +83,6 @@ const APPS = [
     isMockup: false,
     realm: 'FAMILY',
   },
-  // ───── Impro (Alizée + admin) ─────
-  {
-    slug: 'improv',
-    name: 'Impro Engine',
-    description: 'Pratique + match d\'improvisation théâtrale — LNI style.',
-    icon: 'masks-theater',
-    color: '#DC2626',
-    isMockup: false,
-    realm: 'FAMILY',
-  },
   // ───── Travail (admin uniquement) ─────
   {
     slug: 'logifox',
@@ -213,17 +203,8 @@ async function main() {
     });
   }
 
-  // Impro Engine : Alizée uniquement (Martin l'a via la loop admin)
-  const improv = createdApps['improv'];
-  if (improv) {
-    await prisma.userApp.upsert({
-      where: { userId_appId: { userId: createdUsers['alizee@my-mission-control.com'].id, appId: improv.id } },
-      update: { hasAccess: true },
-      create: { userId: createdUsers['alizee@my-mission-control.com'].id, appId: improv.id, hasAccess: true },
-    });
-  }
-
-  // Impro Engine — seed catégories + thèmes + contraintes LNI-style (idempotent)
+  // Impro Engine vit sous /apps/educatif/impro/ — accès implicite via l'app Éducatif.
+  // Seed catégories/thèmes/contraintes LNI (idempotent).
   await seedImprov(prisma);
 
   console.log('✅ Seed terminé. Aucun module backend — MCreator Academy est full-frontend.');
@@ -232,69 +213,137 @@ async function main() {
 // ============ IMPRO ENGINE SEED ============
 
 const IMPROV_CATEGORIES = [
-  { slug: 'mixte-libre',     name: 'Mixte libre',       shortDescription: 'Les deux équipes improvisent ensemble, librement.',       allowedNatures: ['MIXTE'],              defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['classique'] },
-  { slug: 'comparee-libre',  name: 'Comparée libre',    shortDescription: 'Chaque équipe présente sa version, puis vote.',            allowedNatures: ['COMPAREE'],           defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['classique'], practiceCompatible: false },
-  { slug: 'chantee',         name: 'Chantée',           shortDescription: 'Tout le dialogue doit être chanté.',                       allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 120, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['musicale','style'] },
-  { slug: 'rimee',           name: 'Rimée',             shortDescription: 'Chaque réplique doit rimer avec la précédente.',           allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['style'] },
-  { slug: 'sans-paroles',    name: 'Sans paroles',      shortDescription: 'Aucune parole. Tout passe par le corps et les sons.',      allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['physique'] },
-  { slug: 'silencieuse',     name: 'Silencieuse',       shortDescription: 'Aucun son du tout. Mime complet.',                         allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'HARD',   tags: ['physique'] },
-  { slug: 'doublee',         name: 'Doublée',           shortDescription: 'Deux joueurs bougent, deux autres parlent (voix off).',    allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['coordination'], minPlayers: 4 },
-  { slug: 'un-seul-mot',     name: 'À un seul mot',     shortDescription: 'Chaque joueur ne dit qu\'un seul mot à la fois.',           allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['style'] },
-  { slug: 'a-rebours',       name: 'À rebours',         shortDescription: 'La scène commence par la fin et se joue à l\'envers.',      allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 180, defaultCaucusSec: 30, difficulty: 'HARD',   tags: ['structurel'] },
-  { slug: 'rappee',          name: 'Rappée',            shortDescription: 'Tout le dialogue doit être rappé en rythme.',              allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 120, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['musicale','style'] },
-  { slug: 'mimee',           name: 'Mimée',             shortDescription: 'Version mime pure, sans accessoires ni parole.',           allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['physique'] },
-  { slug: 'commentee',       name: 'Commentée',         shortDescription: 'Un narrateur commente pendant que l\'équipe joue.',         allowedNatures: ['MIXTE'],              defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['narratif'], minPlayers: 2 },
-  { slug: 'defi',            name: 'Défi',              shortDescription: 'L\'autre équipe lance un défi à respecter pendant la scène.', allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 15, difficulty: 'MEDIUM', tags: ['challenge'] },
-  { slug: 'avec-accent',     name: 'Avec accent',       shortDescription: 'Tous les joueurs adoptent un accent régional imposé.',     allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 150, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['style'] },
-  { slug: 'tout-terrain',    name: 'Tout-terrain',      shortDescription: 'Catégorie libre, tout est permis.',                        allowedNatures: ['MIXTE','COMPAREE'],   defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['libre'] },
+  // ── Natures de base ──
+  { slug: 'mixte-libre',     name: 'Mixte libre',       shortDescription: 'Les deux équipes improvisent ensemble, librement.',           allowedNatures: ['MIXTE'],            defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['classique'] },
+  { slug: 'comparee-libre',  name: 'Comparée libre',    shortDescription: 'Chaque équipe présente sa version, puis vote.',                allowedNatures: ['COMPAREE'],         defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['classique'], practiceCompatible: false },
+  // ── Styles musicaux / rythmés ──
+  { slug: 'chantee',         name: 'Chantée',           shortDescription: 'Tout le dialogue doit être chanté.',                           allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 120, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['musicale','style'] },
+  { slug: 'rimee',           name: 'Rimée',             shortDescription: 'Chaque réplique doit rimer avec la précédente.',               allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['style'] },
+  { slug: 'rappee',          name: 'Rappée',            shortDescription: 'Tout le dialogue doit être rappé en rythme.',                  allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 120, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['musicale','style'] },
+  { slug: 'comedie-musicale', name: 'Comédie musicale', shortDescription: 'La scène est présentée à la Broadway, chants et chorégraphies.', allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 30, difficulty: 'HARD',   tags: ['musicale','genre'] },
+  { slug: 'poetique',        name: 'Poétique',          shortDescription: 'Registre lyrique, images et métaphores obligées.',             allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['style'] },
+  // ── Parole limitée ──
+  { slug: 'sans-paroles',    name: 'Sans paroles',      shortDescription: 'Aucune parole. Sons et mouvement uniquement.',                 allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['physique'] },
+  { slug: 'silencieuse',     name: 'Silencieuse',       shortDescription: 'Aucun son du tout. Mime pur.',                                 allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'HARD',   tags: ['physique'] },
+  { slug: 'un-seul-mot',     name: 'À un seul mot',     shortDescription: 'Chaque joueur ne dit qu\'un mot à la fois.',                    allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['style'] },
+  { slug: 'mimee',           name: 'Mimée',             shortDescription: 'Version mime avec sons permis, sans accessoires.',             allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 120, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['physique'] },
+  // ── Coordination ──
+  { slug: 'doublee',         name: 'Doublée',           shortDescription: 'Deux joueurs bougent, deux autres parlent en voix off.',       allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['coordination'], minPlayers: 4 },
+  { slug: 'en-fusion',       name: 'En fusion',         shortDescription: 'Deux joueurs forment un seul personnage (mots alternés).',     allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['coordination'], minPlayers: 2 },
+  // ── Structure ──
+  { slug: 'a-rebours',       name: 'À rebours',         shortDescription: 'La scène commence par la fin et remonte.',                     allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 30, difficulty: 'HARD',   tags: ['structurel'] },
+  { slug: 'chronologique',   name: 'Chronologique',     shortDescription: 'La scène saute dans le temps à intervalles annoncés.',         allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['structurel'] },
+  // ── Genres cinéma/radio ──
+  { slug: 'film-noir',       name: 'Film noir',         shortDescription: 'Ambiance années 40, narration cynique, détective.',            allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['genre','cinema'] },
+  { slug: 'film-muet',       name: 'Film muet',         shortDescription: 'Style cinéma muet, gestes exagérés, intertitres.',             allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['genre','cinema'] },
+  { slug: 'film-horreur',    name: 'Film d\'horreur',     shortDescription: 'Tension, jump-scares, atmosphère angoissante.',                allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['genre','cinema'] },
+  { slug: 'tele-serie',      name: 'Télé-série',        shortDescription: 'Épisode soap/drame québécois, cliffhanger à la fin.',          allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['genre','quebec'] },
+  { slug: 'radiophonique',   name: 'Radiophonique',     shortDescription: 'Joué comme à la radio : dos au public, ambiance sonore.',      allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['genre','radio'] },
+  { slug: 'conte-de-fees',   name: 'Conte de fées',     shortDescription: 'Style conte avec narrateur, princes, monstres.',               allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['genre','narratif'] },
+  { slug: 'dramatique',      name: 'Dramatique',        shortDescription: 'Registre sérieux, émotions fortes, pas d\'humour.',             allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'HARD',   tags: ['registre'] },
+  { slug: 'biographique',    name: 'Biographique',      shortDescription: 'Raconte un moment de vie d\'un personnage imposé.',              allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 30, difficulty: 'MEDIUM', tags: ['narratif'] },
+  // ── Narration / jeu ──
+  { slug: 'commentee',       name: 'Commentée',         shortDescription: 'Un narrateur externe commente l\'action en direct.',            allowedNatures: ['MIXTE'],            defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['narratif'], minPlayers: 2 },
+  { slug: 'defi',            name: 'Défi',              shortDescription: 'L\'équipe adverse impose un défi pendant la scène.',             allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 15, difficulty: 'MEDIUM', tags: ['challenge'] },
+  // ── Accents / voix ──
+  { slug: 'avec-accent',     name: 'Avec accent',       shortDescription: 'Accent régional imposé (québécois, marseillais, suisse, etc.).', allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['style','voix'] },
+  { slug: 'avec-titre-impose', name: 'Avec titre imposé', shortDescription: 'Un titre de scène est donné et doit être honoré.',            allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['classique'] },
+  // ── Facile / de repli ──
+  { slug: 'tout-terrain',    name: 'Tout-terrain',      shortDescription: 'Catégorie libre, tout est permis. Carte sécurité.',            allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['libre'] },
 ];
 
 const IMPROV_THEMES = [
-  { slug: 'premier-rendez-vous',       name: 'Premier rendez-vous',                difficulty: 'EASY',   tags: ['classique'] },
-  { slug: 'panne-electricite',         name: 'Panne d\'électricité',                 difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'match-hockey',              name: 'Match de hockey',                    difficulty: 'EASY',   tags: ['quebec','sport'] },
-  { slug: 'epicerie-dimanche',         name: 'Épicerie du dimanche',               difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'cauchemar-enfant',          name: 'Cauchemar d\'enfant',                 difficulty: 'MEDIUM', tags: ['onirique'] },
-  { slug: 'voyage-dans-le-temps',      name: 'Voyage dans le temps',               difficulty: 'HARD',   tags: ['fantastique'] },
+  // ── Quotidien / ordinaire ──
+  { slug: 'premier-rendez-vous',       name: 'Premier rendez-vous',              difficulty: 'EASY',   tags: ['classique'] },
+  { slug: 'panne-electricite',         name: 'Panne d\'électricité',              difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'epicerie-dimanche',         name: 'Épicerie du dimanche',             difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'telephone-sonne',           name: 'Le téléphone sonne',               difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'reunion-famille',           name: 'Réunion de famille',               difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'chez-le-dentiste',          name: 'Chez le dentiste',                 difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'chez-le-barbier',           name: 'Chez le barbier',                  difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'aeroport',                  name: 'À l\'aéroport',                     difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'banque',                    name: 'À la banque',                      difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'permis-conduire',           name: 'Examen du permis de conduire',     difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'entrevue-emploi',           name: 'Entrevue d\'emploi',                difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'premier-emploi',            name: 'Premier jour au travail',          difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'demenagement',              name: 'Déménagement',                     difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'urgence-hopital',           name: 'Attente à l\'urgence',              difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'restaurant',                name: 'Au restaurant',                    difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'cours-yoga',                name: 'Cours de yoga',                    difficulty: 'EASY',   tags: ['loisir'] },
+  { slug: 'club-lecture',              name: 'Club de lecture',                  difficulty: 'MEDIUM', tags: ['loisir'] },
+  { slug: 'cabine-essayage',           name: 'Dans la cabine d\'essayage',        difficulty: 'EASY',   tags: ['quotidien'] },
+  { slug: 'appel-conference',          name: 'Appel-conférence de travail',      difficulty: 'MEDIUM', tags: ['quotidien'] },
+  { slug: 'piscine-municipale',        name: 'Piscine municipale',               difficulty: 'EASY',   tags: ['loisir'] },
+  // ── Québec / fêtes / saisons ──
+  { slug: 'cabane-a-sucre',            name: 'Cabane à sucre',                   difficulty: 'EASY',   tags: ['quebec','fete'] },
+  { slug: 'tempete-neige',             name: 'Tempête de neige',                 difficulty: 'MEDIUM', tags: ['quebec','meteo'] },
+  { slug: 'premiere-neige',            name: 'La première neige',                difficulty: 'EASY',   tags: ['quebec','meteo'] },
+  { slug: 'veille-noel',               name: 'La veille de Noël',                difficulty: 'MEDIUM', tags: ['fete'] },
+  { slug: 'chasse-bonbons',            name: 'Chasse aux bonbons à l\'Halloween', difficulty: 'EASY',   tags: ['fete','quebec'] },
+  { slug: 'saint-jean',                name: 'Feux de la Saint-Jean',            difficulty: 'MEDIUM', tags: ['fete','quebec'] },
+  { slug: 'festival-jazz',             name: 'Festival de jazz de Montréal',     difficulty: 'MEDIUM', tags: ['quebec','culture'] },
+  { slug: 'vendredi-fou',              name: 'Grande vente du Vendredi Fou',     difficulty: 'MEDIUM', tags: ['quebec'] },
+  { slug: 'brouillard-autoroute',      name: 'Brouillard sur l\'autoroute 20',    difficulty: 'MEDIUM', tags: ['quebec','meteo'] },
+  // ── Sport ──
+  { slug: 'match-hockey',              name: 'Match de hockey',                  difficulty: 'EASY',   tags: ['quebec','sport'] },
+  { slug: 'match-curling',             name: 'Match de curling',                 difficulty: 'MEDIUM', tags: ['quebec','sport'] },
+  { slug: 'cours-natation',            name: 'Cours de natation',                difficulty: 'EASY',   tags: ['sport'] },
+  { slug: 'coaching-sportif',          name: 'Session de coaching sportif',      difficulty: 'MEDIUM', tags: ['sport'] },
+  { slug: 'course-matinale',           name: 'Course à pied matinale',           difficulty: 'EASY',   tags: ['sport'] },
+  // ── École / enfance ──
+  { slug: 'examen-maths',              name: 'Examen de mathématiques',          difficulty: 'EASY',   tags: ['ecole'] },
+  { slug: 'devoirs-ecole',             name: 'Devoirs de l\'école',               difficulty: 'EASY',   tags: ['ecole'] },
+  { slug: 'spectacle-fin-annee',       name: 'Spectacle de fin d\'année',         difficulty: 'MEDIUM', tags: ['ecole'] },
+  { slug: 'cour-ecole',                name: 'Récréation dans la cour',          difficulty: 'EASY',   tags: ['ecole','enfance'] },
+  { slug: 'cauchemar-enfant',          name: 'Cauchemar d\'enfant',               difficulty: 'MEDIUM', tags: ['onirique'] },
+  { slug: 'bataille-polochon',         name: 'Bataille d\'oreillers',             difficulty: 'EASY',   tags: ['enfance'] },
+  { slug: 'cabane-arbre',              name: 'Cabane dans l\'arbre',              difficulty: 'EASY',   tags: ['enfance'] },
   { slug: 'grand-maman-mots-croises',  name: 'Grand-maman qui fait ses mots croisés', difficulty: 'EASY', tags: ['quotidien'] },
-  { slug: 'reunion-famille',           name: 'Réunion de famille',                 difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'chez-le-dentiste',          name: 'Chez le dentiste',                   difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'perdu-en-foret',            name: 'Perdu dans la forêt',                difficulty: 'MEDIUM', tags: ['aventure'] },
-  { slug: 'audition-star-academie',    name: 'Audition de Star Académie',          difficulty: 'MEDIUM', tags: ['quebec','showbiz'] },
-  { slug: 'tempete-neige',             name: 'Tempête de neige',                   difficulty: 'MEDIUM', tags: ['quebec','meteo'] },
-  { slug: 'prehistoire',               name: 'Préhistoire',                        difficulty: 'MEDIUM', tags: ['historique'] },
-  { slug: 'voyage-autobus',            name: 'Voyage en autobus',                  difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'camping-sauvage',           name: 'Camping sauvage',                    difficulty: 'MEDIUM', tags: ['nature'] },
-  { slug: 'telephone-sonne',           name: 'Le téléphone sonne',                 difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'pire-cafe-du-monde',        name: 'Le pire café du monde',              difficulty: 'MEDIUM', tags: ['absurde'] },
-  { slug: 'extraterrestre',            name: 'Rencontre avec un extraterrestre',   difficulty: 'HARD',   tags: ['fantastique'] },
-  { slug: 'examen-maths',              name: 'Examen de mathématiques',            difficulty: 'EASY',   tags: ['ecole'] },
-  { slug: 'demenagement',              name: 'Déménagement',                       difficulty: 'EASY',   tags: ['quotidien'] },
-  { slug: 'urgence-hopital',           name: 'Attente à l\'urgence',                difficulty: 'MEDIUM', tags: ['quotidien'] },
-  { slug: 'match-curling',             name: 'Match de curling',                   difficulty: 'MEDIUM', tags: ['quebec','sport'] },
-  { slug: 'chantier-construction',     name: 'Chantier de construction',           difficulty: 'MEDIUM', tags: ['metier'] },
-  { slug: 'visite-zoo',                name: 'Visite au zoo',                      difficulty: 'EASY',   tags: ['sortie'] },
-  { slug: 'tribunal',                  name: 'Au tribunal',                        difficulty: 'HARD',   tags: ['serieux'] },
-  { slug: 'devoirs-ecole',             name: 'Devoirs de l\'école',                 difficulty: 'EASY',   tags: ['ecole'] },
-  { slug: 'chasse-bonbons',            name: 'Chasse aux bonbons à l\'Halloween',    difficulty: 'EASY',   tags: ['fete','quebec'] },
-  { slug: 'veille-noel',               name: 'La veille de Noël',                  difficulty: 'MEDIUM', tags: ['fete'] },
-  { slug: 'visite-musee',              name: 'Visite au musée',                    difficulty: 'MEDIUM', tags: ['sortie'] },
-  { slug: 'spectacle-fin-annee',       name: 'Spectacle de fin d\'année',           difficulty: 'MEDIUM', tags: ['ecole'] },
-  { slug: 'cabane-a-sucre',            name: 'Cabane à sucre',                     difficulty: 'EASY',   tags: ['quebec','fete'] },
-  { slug: 'premiere-neige',            name: 'La première neige',                  difficulty: 'EASY',   tags: ['quebec','meteo'] },
+  // ── Aventure / voyage ──
+  { slug: 'perdu-en-foret',            name: 'Perdu dans la forêt',              difficulty: 'MEDIUM', tags: ['aventure'] },
+  { slug: 'camping-sauvage',           name: 'Camping sauvage',                  difficulty: 'MEDIUM', tags: ['nature'] },
+  { slug: 'camping-vr',                name: 'Camping en VR',                    difficulty: 'MEDIUM', tags: ['quebec','voyage'] },
+  { slug: 'voyage-autobus',            name: 'Voyage en autobus',                difficulty: 'EASY',   tags: ['voyage'] },
+  { slug: 'ruelle-sombre',             name: 'Ruelle sombre le soir',            difficulty: 'MEDIUM', tags: ['mystere'] },
+  // ── Fantastique / absurde ──
+  { slug: 'voyage-dans-le-temps',      name: 'Voyage dans le temps',             difficulty: 'HARD',   tags: ['fantastique'] },
+  { slug: 'extraterrestre',            name: 'Rencontre avec un extraterrestre', difficulty: 'HARD',   tags: ['fantastique'] },
+  { slug: 'prehistoire',               name: 'Préhistoire',                      difficulty: 'MEDIUM', tags: ['historique'] },
+  { slug: 'pire-cafe-du-monde',        name: 'Le pire café du monde',            difficulty: 'MEDIUM', tags: ['absurde'] },
+  // ── Showbiz ──
+  { slug: 'audition-star-academie',    name: 'Audition de Star Académie',        difficulty: 'MEDIUM', tags: ['quebec','showbiz'] },
+  { slug: 'talk-show',                 name: 'Talk-show télé',                   difficulty: 'MEDIUM', tags: ['showbiz'] },
+  { slug: 'nouvelles-18h',             name: 'Nouvelles du 18h',                 difficulty: 'MEDIUM', tags: ['showbiz'] },
+  // ── Sérieux ──
+  { slug: 'tribunal',                  name: 'Au tribunal',                      difficulty: 'HARD',   tags: ['serieux'] },
+  { slug: 'funerailles',               name: 'Aux funérailles',                  difficulty: 'HARD',   tags: ['serieux'] },
+  { slug: 'mariage',                   name: 'Au mariage',                       difficulty: 'MEDIUM', tags: ['fete'] },
+  // ── Sorties ──
+  { slug: 'visite-zoo',                name: 'Visite au zoo',                    difficulty: 'EASY',   tags: ['sortie'] },
+  { slug: 'visite-musee',              name: 'Visite au musée',                  difficulty: 'MEDIUM', tags: ['sortie'] },
+  { slug: 'foire-agricole',            name: 'Foire agricole',                   difficulty: 'MEDIUM', tags: ['sortie','quebec'] },
+  { slug: 'chantier-construction',     name: 'Chantier de construction',         difficulty: 'MEDIUM', tags: ['metier'] },
 ];
 
 const IMPROV_CONSTRAINTS = [
-  { slug: 'sans-se-toucher',     name: 'Sans jamais se toucher',      description: 'Les joueurs ne peuvent pas entrer en contact physique.',  difficulty: 'MEDIUM' },
-  { slug: 'en-chantant',         name: 'En chantant chaque mot',       description: 'Chaque réplique doit être chantée, même les plus banales.', difficulty: 'HARD' },
-  { slug: 'sans-regarder',       name: 'Sans regarder l\'autre',       description: 'Les joueurs ne peuvent pas se regarder dans les yeux.',   difficulty: 'MEDIUM' },
-  { slug: 'en-rimes',            name: 'En rimes',                     description: 'Chaque réplique doit rimer avec la précédente.',          difficulty: 'HARD' },
-  { slug: 'yeux-fermes',         name: 'Les yeux fermés',              description: 'Tous les joueurs gardent les yeux fermés.',               difficulty: 'HARD' },
-  { slug: 'en-chuchotant',       name: 'En chuchotant',                description: 'Impossible de parler fort.',                              difficulty: 'EASY' },
-  { slug: 'gibberish',           name: 'En gibberish',                 description: 'Sons inventés uniquement — pas de mots réels.',           difficulty: 'HARD' },
-  { slug: 'un-mot-en-anglais',   name: 'Avec un mot en anglais à chaque réplique', description: 'Chaque phrase contient au moins un mot anglais.', difficulty: 'MEDIUM' },
-  { slug: 'un-joueur-a-la-fois', name: 'Un seul joueur bouge à la fois', description: 'Les autres restent figés.',                              difficulty: 'MEDIUM' },
-  { slug: 'repliques-courtes',   name: 'Répliques de 3 mots max',      description: 'Jamais plus de 3 mots à la fois.',                        difficulty: 'HARD' },
+  { slug: 'sans-se-toucher',     name: 'Sans jamais se toucher',        description: 'Aucun contact physique entre les joueurs.',              difficulty: 'MEDIUM' },
+  { slug: 'en-chantant',         name: 'En chantant chaque mot',         description: 'Chaque réplique doit être chantée.',                    difficulty: 'HARD' },
+  { slug: 'sans-regarder',       name: 'Sans se regarder',              description: 'Aucun contact visuel direct entre joueurs.',            difficulty: 'MEDIUM' },
+  { slug: 'en-rimes',            name: 'En rimes',                      description: 'Chaque réplique doit rimer avec la précédente.',        difficulty: 'HARD' },
+  { slug: 'yeux-fermes',         name: 'Les yeux fermés',               description: 'Jouer les yeux fermés, sauf pour la sécurité.',          difficulty: 'HARD' },
+  { slug: 'en-chuchotant',       name: 'En chuchotant',                 description: 'Impossible de parler fort ou normalement.',              difficulty: 'EASY' },
+  { slug: 'gibberish',           name: 'En gibberish',                  description: 'Sons inventés seulement — aucun mot réel.',              difficulty: 'HARD' },
+  { slug: 'mot-anglais',         name: 'Un mot en anglais par réplique', description: 'Glisser au moins un mot anglais à chaque tirade.',      difficulty: 'MEDIUM' },
+  { slug: 'un-joueur-a-la-fois', name: 'Un joueur bouge à la fois',     description: 'Les autres restent figés.',                              difficulty: 'MEDIUM' },
+  { slug: 'repliques-courtes',   name: 'Répliques de 3 mots maximum',    description: 'Jamais plus de 3 mots par réplique.',                    difficulty: 'HARD' },
+  { slug: 'dos-au-public',       name: 'Dos au public',                 description: 'Les joueurs donnent le dos à l\'auditoire.',              difficulty: 'MEDIUM' },
+  { slug: 'sur-un-pied',         name: 'Sur un pied',                   description: 'Tout le monde reste sur un pied.',                       difficulty: 'HARD' },
+  { slug: 'tout-en-pleurant',    name: 'Tout en pleurant',              description: 'Chaque réplique est accompagnée de pleurs.',             difficulty: 'MEDIUM' },
+  { slug: 'tout-en-riant',       name: 'Tout en riant',                 description: 'Impossible de ne pas rire en parlant.',                  difficulty: 'MEDIUM' },
+  { slug: 'sous-eau',            name: 'Comme sous l\'eau',              description: 'Gestes et voix ralentis, comme sous-marins.',            difficulty: 'MEDIUM' },
+  { slug: 'comme-robots',        name: 'Comme des robots',              description: 'Gestes saccadés, voix monocorde.',                       difficulty: 'MEDIUM' },
+  { slug: 'en-cowboy',           name: 'Comme des cowboys',              description: 'Accent, démarche et attitude western obligatoires.',     difficulty: 'EASY' },
+  { slug: 'dos-a-dos',           name: 'Dos à dos',                     description: 'Les joueurs jouent toujours dos à dos, pas face à face.', difficulty: 'MEDIUM' },
 ];
 
 async function seedImprov(prisma) {
