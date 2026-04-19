@@ -11,6 +11,7 @@ const adminRoutes = require('./routes/admin');
 const educatifRoutes = require('./routes/educatif');
 const adminEducatifRoutes = require('./routes/admin-educatif');
 const improvRoutes = require('./routes/improv');
+const kazRoutes = require('./routes/kaz');
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/admin', adminRoutes);
 app.use('/educatif', educatifRoutes);
 app.use('/admin/educatif', adminEducatifRoutes);
 app.use('/improv', improvRoutes);
+app.use('/kaz', kazRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });

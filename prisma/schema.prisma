@@ -69,6 +69,7 @@ model User {
   progress            Progress[]
   badges              UserBadge[]
   improvSessions      ImprovSession[]
+  kazChatSessions     KazChatSession[]
 }
 
 model App {
@@ -268,4 +269,31 @@ model ImprovRound {
   createdAt  DateTime      @default(now())
 
   @@index([sessionId, orderIndex])
+}
+
+// ============ KAZ CHAT (live tutor) =============
+
+model KazChatSession {
+  id         Int              @id @default(autoincrement())
+  userId     Int
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonSlug String           // ex: "survie-xp-s2"
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  messages   KazChatMessage[]
+
+  @@unique([userId, lessonSlug])
+  @@index([userId])
+}
+
+model KazChatMessage {
+  id        Int            @id @default(autoincrement())
+  sessionId Int
+  session   KazChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String         // "user" | "assistant"
+  content   String         @db.Text
+  actIndex  Int?
+  createdAt DateTime       @default(now())
+
+  @@index([sessionId, createdAt])
 }
