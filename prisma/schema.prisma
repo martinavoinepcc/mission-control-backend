@@ -22,6 +22,17 @@ enum Realm {
   WORK
 }
 
+enum ImprovNature {
+  MIXTE
+  COMPAREE
+}
+
+enum ImprovDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
 enum ModuleStatus {
   ACTIVE
   DRAFT
@@ -57,6 +68,7 @@ model User {
   modules             ModuleAccess[]
   progress            Progress[]
   badges              UserBadge[]
+  improvSessions      ImprovSession[]
 }
 
 model App {
@@ -181,4 +193,79 @@ model UserBadge {
   badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeId])
+}
+
+// ============ IMPRO ENGINE =============
+
+model ImprovCategory {
+  id                 Int              @id @default(autoincrement())
+  slug               String           @unique
+  name               String
+  shortDescription   String?
+  rulesDescription   String?
+  allowedNatures     ImprovNature[]
+  minPlayers         Int              @default(1)
+  maxPlayers         Int              @default(6)
+  minDurationSec     Int              @default(60)
+  maxDurationSec     Int              @default(300)
+  defaultDurationSec Int              @default(180)
+  caucusAllowed      Boolean          @default(true)
+  defaultCaucusSec   Int              @default(20)
+  themeRequired      Boolean          @default(true)
+  constraintsAllowed Boolean          @default(true)
+  difficulty         ImprovDifficulty @default(MEDIUM)
+  practiceCompatible Boolean          @default(true)
+  gameCompatible     Boolean          @default(true)
+  tags               String[]         @default([])
+  active             Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  themes             ImprovTheme[]
+}
+
+model ImprovTheme {
+  id         Int              @id @default(autoincrement())
+  slug       String           @unique
+  name       String
+  categoryId Int?
+  category   ImprovCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  difficulty ImprovDifficulty @default(MEDIUM)
+  tags       String[]         @default([])
+  active     Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+}
+
+model ImprovConstraint {
+  id          Int              @id @default(autoincrement())
+  slug        String           @unique
+  name        String
+  description String?
+  difficulty  ImprovDifficulty @default(MEDIUM)
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+}
+
+model ImprovSession {
+  id        Int             @id @default(autoincrement())
+  userId    Int
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode      String          // "PRACTICE" | "GAME"
+  createdAt DateTime        @default(now())
+  rounds    ImprovRound[]
+
+  @@index([userId])
+}
+
+model ImprovRound {
+  id         Int           @id @default(autoincrement())
+  sessionId  Int
+  session    ImprovSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  orderIndex Int           @default(0)
+  cardData   Json          // nature, category slug, theme slug, constraints, duration, caucus, players
+  voteResult String?       // "A" | "B" | "TIE" | null (practice)
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime      @default(now())
+
+  @@index([sessionId, orderIndex])
 }
