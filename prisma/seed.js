@@ -249,6 +249,49 @@ const IMPROV_CATEGORIES = [
   { slug: 'avec-accent',     name: 'Avec accent',       shortDescription: 'Accent régional imposé (québécois, marseillais, suisse, etc.).', allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 20, difficulty: 'MEDIUM', tags: ['style','voix'] },
   { slug: 'avec-titre-impose', name: 'Avec titre imposé', shortDescription: 'Un titre de scène est donné et doit être honoré.',            allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 25, difficulty: 'MEDIUM', tags: ['classique'] },
   // ── Facile / de repli ──
+  // ── Nouvelles catégories v2 (avril 2026) — proposées par Alizée ──
+  {
+    slug: 'fusillade',         name: 'Fusillade',
+    shortDescription: 'Impro courte et rapide, 45 sec à 1 min.',
+    rulesDescription: 'Les deux équipes s\'affrontent dans des impros ultra-courtes de 45 secondes à 1 minute chacune. Pas de temps pour penser — rapidité, réflexes, enchaînement direct. Souvent plusieurs fusillades dans une même session pour tester l\'adaptabilité des équipes.',
+    allowedNatures: ['MIXTE','COMPAREE'], minDurationSec: 45, maxDurationSec: 75, defaultDurationSec: 60, defaultCaucusSec: 10,
+    difficulty: 'MEDIUM', tags: ['rapide','classique','v2']
+  },
+  {
+    slug: 'zapping',           name: 'Zapping',
+    shortDescription: 'Scènes qui changent rapidement au signal.',
+    rulesDescription: 'Les joueurs improvisent une scène. Au signal du maître de jeu (cloche ou mot-clé), ils doivent CHANGER de scène instantanément. Ils peuvent revenir aux scènes précédentes plus tard — il faut se souvenir des personnages, lieux, intrigues laissés en suspens. Fluidité et mémoire obligatoires.',
+    allowedNatures: ['MIXTE'], defaultDurationSec: 210, defaultCaucusSec: 25,
+    difficulty: 'HARD', tags: ['rapide','meta','v2']
+  },
+  {
+    slug: 'horoscope',         name: 'Horoscope',
+    shortDescription: "Le maître de jeu lit un horoscope. La scène s'inspire du signe tiré.",
+    rulesDescription: "Un signe du zodiaque est tiré au hasard et son horoscope du jour est lu aux joueurs (généré par l\'IA ou tiré de la banque). L\'impro doit s\'inspirer DIRECTEMENT de l\'horoscope : un trait de caractère évoqué, un événement prédit, un conseil donné. Tous les éléments doivent apparaître dans la scène.",
+    allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 150, defaultCaucusSec: 30,
+    difficulty: 'MEDIUM', tags: ['ai','inspiration','v2']
+  },
+  {
+    slug: 'videoway',          name: 'Vidéoway',
+    shortDescription: 'Quatre chaînes TV (F1-F4), le maître de jeu zappe.',
+    rulesDescription: "Impro MIXTE à 4 canaux de télévision identifiés F1, F2, F3, F4, avec un contenu DIFFÉRENT pour chacun. Il faut un improvisateur de chaque troupe par canal. Le maître de jeu saute d\'un canal à l\'autre sans ordre prédéterminé. Quand il REVIENT sur un canal, les improvisateurs doivent faire l\'effort d\'AVANCER dans le temps comme si l\'on zappait en temps réel à la télé.",
+    allowedNatures: ['MIXTE'], defaultDurationSec: 240, defaultCaucusSec: 40,
+    minPlayers: 4, maxPlayers: 8, difficulty: 'HARD', tags: ['coordination','tv','v2']
+  },
+  {
+    slug: 'abecedaire',        name: 'Abécédaire',
+    shortDescription: 'Chaque mot suit l\'ordre alphabétique, un mot par joueur.',
+    rulesDescription: "Trois personnes par équipe répondent à quelqu\'un qui pose des questions. Chaque joueur dit UN SEUL mot, et chaque mot doit commencer par la lettre alphabétique SUIVANTE. Exemple : « Au bar, Catherine devait enregistrer... » (A-B-C-D-E-...). Discipline, vocabulaire, patience.",
+    allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 20,
+    minPlayers: 3, maxPlayers: 6, difficulty: 'HARD', tags: ['structure','vocabulaire','v2']
+  },
+  {
+    slug: 'deja-vu',           name: 'Déjà vu',
+    shortDescription: 'Scène libre puis on reprend avec une variation imposée.',
+    rulesDescription: "L\'improvisation débute comme une libre. À mi-temps (ou quand le maître de jeu le décide), les joueurs doivent RECOMMENCER la même improvisation en changeant soit le STYLE, l\'AMBIANCE, un ÉLÉMENT de l\'histoire, en modifiant les PERSONNAGES, en imposant des HANDICAPS ou autres. La deuxième version doit conserver la trame mais tout transformer.",
+    allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 240, defaultCaucusSec: 25,
+    difficulty: 'MEDIUM', tags: ['structure','meta','v2']
+  },
   { slug: 'tout-terrain',    name: 'Tout-terrain',      shortDescription: 'Catégorie libre, tout est permis. Carte sécurité.',            allowedNatures: ['MIXTE','COMPAREE'], defaultDurationSec: 180, defaultCaucusSec: 20, difficulty: 'EASY',   tags: ['libre'] },
 ];
 
@@ -354,9 +397,12 @@ async function seedImprov(prisma) {
       update: {
         name: c.name,
         shortDescription: c.shortDescription,
+        rulesDescription: c.rulesDescription ?? null,
         allowedNatures: c.allowedNatures,
         minPlayers: c.minPlayers ?? 1,
         maxPlayers: c.maxPlayers ?? 6,
+        minDurationSec: c.minDurationSec ?? 60,
+        maxDurationSec: c.maxDurationSec ?? 300,
         defaultDurationSec: c.defaultDurationSec ?? 180,
         defaultCaucusSec: c.defaultCaucusSec ?? 20,
         difficulty: c.difficulty ?? 'MEDIUM',
@@ -368,9 +414,12 @@ async function seedImprov(prisma) {
         slug: c.slug,
         name: c.name,
         shortDescription: c.shortDescription,
+        rulesDescription: c.rulesDescription ?? null,
         allowedNatures: c.allowedNatures,
         minPlayers: c.minPlayers ?? 1,
         maxPlayers: c.maxPlayers ?? 6,
+        minDurationSec: c.minDurationSec ?? 60,
+        maxDurationSec: c.maxDurationSec ?? 300,
         defaultDurationSec: c.defaultDurationSec ?? 180,
         defaultCaucusSec: c.defaultCaucusSec ?? 20,
         difficulty: c.difficulty ?? 'MEDIUM',

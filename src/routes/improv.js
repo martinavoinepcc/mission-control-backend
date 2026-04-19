@@ -8,7 +8,48 @@
 
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const Anthropic = require('@anthropic-ai/sdk');
 const auth = require('../middleware/auth');
+
+const _anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+
+// Fallback horoscopes par signe (3 par signe) — utilisés si Anthropic down.
+const ZODIAC_SIGNS = ['Bélier','Taureau','Gémeaux','Cancer','Lion','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons'];
+const HOROSCOPE_FALLBACKS = {
+  'Bélier':      ["Ton feu intérieur bouillonne. Une décision audacieuse avant midi va tout changer. Attention à ne pas écraser les orteils des autres.", "L'univers te pousse à dire ce que tu penses vraiment. Jour idéal pour commencer quelque chose. Bois beaucoup d'eau.", "Tu rayonnes. Une vieille connaissance va refaire surface. Reste curieux de tout."],
+  'Taureau':     ["Ta patience légendaire va payer aujourd'hui. Un plaisir inattendu t'attend au coin de la rue. Écoute ton instinct gourmand.", "L'argent et le confort sont au rendez-vous. Prends soin de ton dos. Savoure chaque bouchée.", "Un ami fidèle a besoin de toi. Sois présent mais ne te laisse pas submerger."],
+  'Gémeaux':     ["Deux opportunités se présentent. Choisis la moins évidente. Ta curiosité va te mener loin aujourd'hui.", "Parle moins, écoute plus. Un message important va arriver en fin de journée. Souris sans raison.", "Tu jongles avec trop de choses. Pose-en une pour mieux attraper les autres."],
+  'Cancer':      ["Tes émotions sont à fleur de peau. C'est une force, pas une faiblesse. Quelqu'un pense à toi très fort.", "Un souvenir d'enfance va te revenir. Laisse-toi porter. Ta maison est ton sanctuaire aujourd'hui.", "Protège ton cœur mais n'oublie pas de l'ouvrir à la bonne personne."],
+  'Lion':        ["Tu brilles — les gens te suivent naturellement. Utilise ce pouvoir pour le bien. Une reconnaissance méritée arrive.", "Ton charisme est à son pic. Ose demander ce que tu veux. Mais reste humble dans la victoire.", "Un défi à la hauteur de ton orgueil se profile. Relève-le sans arrogance."],
+  'Vierge':      ["Ton sens du détail va sauver quelqu'un aujourd'hui. Sois moins dur avec toi-même. La perfection n'existe pas.", "Range quelque chose — physiquement ou mentalement. Clarté = paix. Un compliment inattendu va te toucher.", "Tu analyses trop. Fais confiance à ton premier instinct pour une fois."],
+  'Balance':     ["Un choix difficile entre deux options équivalentes. Laisse parler ton cœur, pas ta tête. L'harmonie règne chez toi.", "Tu cherches le juste milieu partout — aujourd'hui, prends position. Les astres soutiennent les audacieux.", "Une rencontre va équilibrer ta semaine. Sois ouvert."],
+  'Scorpion':    ["Ton intuition est laser aujourd'hui. Tu perces les secrets d'un coup d'œil. Ne sois pas cruel avec cette info.", "Une transformation profonde commence. Laisse mourir ce qui doit mourir. La phoenix se lève.", "Quelqu'un te ment. Tu le sens. Attends le bon moment pour confronter."],
+  'Sagittaire':  ["L'aventure t'appelle. Réserve un billet — même symbolique. Ton optimisme contagieux va inspirer.", "Tu as raison sur quelque chose mais tu as tort sur la façon de le dire. Adoucis le ton.", "Un voyage intérieur aujourd'hui. Lis un chapitre qui te fait peur."],
+  'Capricorne':  ["Ton travail acharné porte ses fruits. Profite du moment sans déjà planifier le suivant. Rire fort aujourd'hui.", "Une montagne à gravir — tu as les outils. Un mentor va apparaître si tu demandes.", "Relâche le contrôle sur une petite chose. Le ciel ne tombera pas."],
+  'Verseau':     ["Une idée révolutionnaire germe. Note-la avant qu'elle s'envole. Une amitié va s'approfondir.", "Tu veux changer le monde — commence par changer une habitude. Les astres applaudissent.", "Ta différence est ta force. Arrête de t'excuser d'être toi."],
+  'Poissons':    ["Tes rêves essaient de te dire quelque chose. Note-les au réveil. Une créativité fluide t'habite.", "Tu absorbes les énergies des autres. Met des limites douces. Un art va te guérir.", "La magie est dans les petites coïncidences. Remarque-les. Quelqu'un te voit vraiment."]
+};
+
+async function generateHoroscope(forceFallback = false) {
+  const sign = ZODIAC_SIGNS[Math.floor(Math.random() * ZODIAC_SIGNS.length)];
+  if (!forceFallback && _anthropic) {
+    try {
+      const msg = await _anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        system: 'Tu es un astrologue québécois charismatique. Écris UN horoscope du jour (3-4 phrases) pour le signe demandé, avec un ton légèrement dramatique mais joyeux. Inclus OBLIGATOIREMENT : (1) un trait de caractère évoqué, (2) un événement imminent, (3) un conseil concret. Pas de markdown. Français québécois naturel.',
+        messages: [{ role: 'user', content: `Horoscope du jour pour le signe ${sign}.` }],
+      });
+      const text = (msg.content && msg.content[0] && msg.content[0].text) || '';
+      if (text) return { sign, text, source: 'ai' };
+    } catch (e) {
+      console.warn('Horoscope AI failed, fallback:', e.message);
+    }
+  }
+  const pool = HOROSCOPE_FALLBACKS[sign] || ['Les astres sont silencieux aujourd\'hui.'];
+  const text = pool[Math.floor(Math.random() * pool.length)];
+  return { sign, text, source: 'fallback' };
+}
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -149,9 +190,9 @@ router.post('/generate', async (req, res) => {
       }
     }
 
-    // Constraints
+    // Constraints (skipped if forceNoConstraints)
     let constraints = [];
-    if (chosen.constraintsAllowed) {
+    if (!body.forceNoConstraints && chosen.constraintsAllowed) {
       if (Array.isArray(body.constraintsSlugs) && body.constraintsSlugs.length) {
         constraints = await prisma.improvConstraint.findMany({
           where: { slug: { in: body.constraintsSlugs }, active: true },
@@ -180,6 +221,7 @@ router.post('/generate', async (req, res) => {
         slug: chosen.slug,
         name: chosen.name,
         shortDescription: chosen.shortDescription,
+        rulesDescription: chosen.rulesDescription,
         difficulty: chosen.difficulty,
       },
       theme: theme ? { slug: theme.slug, name: theme.name } : null,
@@ -188,6 +230,15 @@ router.post('/generate', async (req, res) => {
       durationSec,
       caucusSec,
     };
+
+    // Auto-attach horoscope if category is 'horoscope'
+    if (chosen.slug === 'horoscope') {
+      try {
+        card.horoscope = await generateHoroscope();
+      } catch (e) {
+        card.horoscope = { sign: '?', text: 'Les astres sont muets.', source: 'error' };
+      }
+    }
 
     return res.json({ card });
   } catch (e) {
@@ -230,6 +281,17 @@ router.post('/sessions/:id/rounds', async (req, res) => {
   } catch (e) {
     console.error('POST /improv/sessions/:id/rounds', e);
     return res.status(500).json({ erreur: 'Erreur serveur.' });
+  }
+});
+
+// POST /improv/horoscope — standalone (tirage manuel si besoin)
+router.post('/horoscope', async (req, res) => {
+  try {
+    const h = await generateHoroscope();
+    return res.json(h);
+  } catch (e) {
+    console.error('POST /improv/horoscope', e);
+    return res.status(500).json({ erreur: 'Les astres sont en maintenance.' });
   }
 });
 
