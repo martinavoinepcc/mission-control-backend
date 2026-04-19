@@ -120,8 +120,9 @@ router.post('/users/:id/apps', async (req, res) => {
   }
 });
 
-// POST /admin/users/:id/password — réinitialisation du mot de passe d'un membre
+// POST /admin/users/:id/password — admin définit le mot de passe d'un membre.
 // Body: { newPassword: string }
+// Règles: pas de longueur minimum, pas de mustChangePassword forcé. Martin a le contrôle total.
 router.post('/users/:id/password', async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
@@ -129,17 +130,14 @@ router.post('/users/:id/password', async (req, res) => {
     if (!userId || !newPassword) {
       return res.status(400).json({ erreur: 'userId et newPassword requis.' });
     }
-    if (newPassword.length < 8) {
-      return res.status(400).json({ erreur: 'Le mot de passe doit avoir au moins 8 caractères.' });
-    }
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: userId },
-      data: { password: hashed, mustChangePassword: true },
+      data: { password: hashed, mustChangePassword: false },
     });
 
-    return res.json({ message: 'Mot de passe réinitialisé. Le membre devra le changer à sa prochaine connexion.' });
+    return res.json({ message: 'Mot de passe défini par l\'admin.' });
   } catch (err) {
     console.error('POST /admin/users/:id/password error:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });

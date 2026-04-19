@@ -18,27 +18,43 @@ const loginLimiter = rateLimit({
 });
 
 // POST /auth/login
+// Accepte { identifier, password } (identifier = email ou username, case-insensitive)
+// Backward-compat : accepte aussi { email, password } ou { username, password }.
 router.post('/login', loginLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ erreur: 'Courriel et mot de passe requis.' });
+    const body = req.body || {};
+    const raw = (body.identifier ?? body.email ?? body.username ?? '').toString().trim();
+    const password = body.password;
+
+    if (!raw || !password) {
+      return res.status(400).json({ erreur: 'Identifiant et mot de passe requis.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    let user = null;
+    if (raw.includes('@')) {
+      // Voie email (admin typiquement).
+      user = await prisma.user.findUnique({ where: { email: raw.toLowerCase() } });
+    } else {
+      // Voie username (case-insensitive).
+      user = await prisma.user.findFirst({
+        where: { username: { equals: raw, mode: 'insensitive' } },
+      });
+    }
+
     if (!user) {
-      return res.status(401).json({ erreur: 'Courriel ou mot de passe invalide.' });
+      return res.status(401).json({ erreur: 'Identifiant ou mot de passe invalide.' });
     }
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
-      return res.status(401).json({ erreur: 'Courriel ou mot de passe invalide.' });
+      return res.status(401).json({ erreur: 'Identifiant ou mot de passe invalide.' });
     }
 
     const token = jwt.sign(
       {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         role: user.role,
         profile: user.profile,
@@ -52,6 +68,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         role: user.role,
         profile: user.profile,

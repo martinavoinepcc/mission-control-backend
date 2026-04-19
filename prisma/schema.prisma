@@ -40,6 +40,7 @@ enum ProgressStatus {
 model User {
   id                  Int            @id @default(autoincrement())
   email               String         @unique
+  username            String?        @unique
   firstName           String
   password            String
   role                Role           @default(MEMBER)

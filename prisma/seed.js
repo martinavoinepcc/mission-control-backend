@@ -9,6 +9,7 @@ const prisma = new PrismaClient();
 const FAMILY = [
   {
     email: 'martin@logifox.io',
+    username: null, // admin login par email
     firstName: 'Martin',
     password: 'Mm7632362$',
     role: 'ADMIN',
@@ -17,6 +18,7 @@ const FAMILY = [
   },
   {
     email: 'marie-josee@my-mission-control.com',
+    username: 'MJ',
     firstName: 'Marie-Josée',
     password: 'm1979',
     role: 'MEMBER',
@@ -25,6 +27,7 @@ const FAMILY = [
   },
   {
     email: 'alizee@my-mission-control.com',
+    username: 'Ali',
     firstName: 'Alizée',
     password: 'a2013',
     role: 'MEMBER',
@@ -33,6 +36,7 @@ const FAMILY = [
   },
   {
     email: 'jackson@my-mission-control.com',
+    username: 'Jax',
     firstName: 'Jackson',
     password: 'j2015',
     role: 'MEMBER',
@@ -69,7 +73,7 @@ const APPS = [
   {
     slug: 'educatif',
     name: 'Éducatif',
-    description: 'MCreator Academy — préparation au camp Studio XP.',
+    description: "Coder, créer, apprendre — le coin d'apprentissage.",
     icon: 'graduation-cap',
     color: '#10B981',
     isMockup: false,
@@ -104,14 +108,16 @@ async function main() {
     const user = await prisma.user.upsert({
       where: { email: u.email },
       update: {
+        // NOTE: on NE remplace PAS password ni mustChangePassword à chaque deploy —
+        // l'admin a le contrôle total sur les mdp. Le seed ne fait que créer initialement.
+        username: u.username ?? null,
         firstName: u.firstName,
         role: u.role,
         profile: u.profile,
-        password: hashed,
-        mustChangePassword: u.mustChangePassword,
       },
       create: {
         email: u.email,
+        username: u.username ?? null,
         firstName: u.firstName,
         password: hashed,
         role: u.role,
