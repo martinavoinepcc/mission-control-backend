@@ -12,6 +12,8 @@ const educatifRoutes = require('./routes/educatif');
 const adminEducatifRoutes = require('./routes/admin-educatif');
 const improvRoutes = require('./routes/improv');
 const kazRoutes = require('./routes/kaz');
+const weatherRoutes = require('./routes/weather');
+const hubitatRoutes = require('./routes/hubitat');
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -54,6 +56,8 @@ app.use('/educatif', educatifRoutes);
 app.use('/admin/educatif', adminEducatifRoutes);
 app.use('/improv', improvRoutes);
 app.use('/kaz', kazRoutes);
+app.use('/weather', weatherRoutes);
+app.use('/hubitat', hubitatRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });
