@@ -173,6 +173,53 @@ router.post('/', auth, async (req, res) => {
 
     const cleanTitle = typeof title === 'string' && title.trim() ? title.trim().slice(0, 80) : null;
 
+    // DM dedup : si c'est une conversation 1-à-1 sans titre, réutiliser la convo existante
+    // entre ces 2 users si elle existe (évite les doublons de DM).
+    if (sanitized.length === 2 && !cleanTitle) {
+      const otherId = sanitized.find((id) => id !== req.user.id);
+      const myParticipations = await prisma.conversationParticipant.findMany({
+        where: { userId: req.user.id },
+        include: {
+          conversation: {
+            include: {
+              participants: {
+                include: {
+                  user: {
+                    select: {
+                      id: true, firstName: true, username: true,
+                      avatarData: true, avatarUpdatedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const match = myParticipations.find(
+        (p) =>
+          p.conversation.title === null &&
+          p.conversation.participants.length === 2 &&
+          p.conversation.participants.some((cp) => cp.userId === otherId)
+      );
+      if (match) {
+        const convo = match.conversation;
+        return res.json({
+          id: convo.id,
+          slug: convo.slug,
+          title: convo.title,
+          createdAt: convo.createdAt,
+          reused: true,
+          participants: convo.participants.map((cp) => ({
+            id: cp.user.id,
+            firstName: cp.user.firstName,
+            hasAvatar: !!cp.user.avatarData,
+            avatarUpdatedAt: cp.user.avatarUpdatedAt,
+          })),
+        });
+      }
+    }
+
     const convo = await prisma.conversation.create({
       data: {
         title: cleanTitle,
