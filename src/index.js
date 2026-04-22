@@ -42,7 +42,12 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: '1mb' }));
+// Render est derrière un proxy Cloudflare — trust proxy pour que express-rate-limit
+// lise X-Forwarded-For correctement (supprime le warning au boot).
+app.set('trust proxy', 1);
+
+// 4 MB : laisse de la marge pour une image message webp ~1.5 MB + overhead base64/JSON.
+app.use(express.json({ limit: '4mb' }));
 
 app.get('/', (req, res) => {
   res.json({ service: 'mission-control-api', status: 'ok', version: '0.1.0' });

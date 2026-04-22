@@ -18,8 +18,9 @@ const router = express.Router();
 
 const sendPushToUser = pushModule && pushModule.sendPushToUser;
 
-// Limite taille image message (base64) — ~600 KB brut
-const MAX_IMAGE_BASE64_BYTES = 700 * 1024;
+// Limite taille image message (base64 data URL). 2 MB laisse de la marge pour les photos iPhone
+// qui sortent parfois ~1-1.5 MB même après compression webp qualité 0.5.
+const MAX_IMAGE_BASE64_BYTES = 2 * 1024 * 1024;
 
 // Base URL pour les avatars dans les push icon (doit être absolue).
 const PUBLIC_API_URL =
