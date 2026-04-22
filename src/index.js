@@ -14,6 +14,7 @@ const improvRoutes = require('./routes/improv');
 const kazRoutes = require('./routes/kaz');
 const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
+const pushRoutes = require('./routes/push');
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -58,6 +59,7 @@ app.use('/improv', improvRoutes);
 app.use('/kaz', kazRoutes);
 app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
+app.use('/push', pushRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });

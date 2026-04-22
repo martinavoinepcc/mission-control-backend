@@ -70,6 +70,7 @@ model User {
   badges              UserBadge[]
   improvSessions      ImprovSession[]
   kazChatSessions     KazChatSession[]
+  pushSubscriptions   PushSubscription[]
 }
 
 model App {
@@ -297,4 +298,22 @@ model KazChatMessage {
   createdAt DateTime       @default(now())
 
   @@index([sessionId, createdAt])
+}
+
+// ============ PUSH NOTIFICATIONS (Web Push + futur Expo) =============
+
+// Une subscription = un device × user. Web Push stocke endpoint + p256dh + auth.
+// Expo (app mobile future) stockera expoPushToken à la place — même table.
+model PushSubscription {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint    String    @unique                    // URL unique fournie par le navigateur, ou "expo:<token>"
+  p256dh      String?                              // clé publique du client (Web Push seulement)
+  auth        String?                              // secret d'authentification (Web Push seulement)
+  userAgent   String?                              // pour debug : quel device/navigateur
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+
+  @@index([userId])
 }

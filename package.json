@@ -19,7 +19,8 @@
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "@anthropic-ai/sdk": "^0.40.0"
+    "@anthropic-ai/sdk": "^0.40.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "prisma": "^5.22.0"
