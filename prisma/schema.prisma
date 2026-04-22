@@ -54,23 +54,25 @@ enum ProgressStatus {
 }
 
 model User {
-  id                  Int            @id @default(autoincrement())
-  email               String         @unique
-  username            String?        @unique
-  firstName           String
-  password            String
-  role                Role           @default(MEMBER)
-  profile             Profile        @default(ADULT)
-  mustChangePassword  Boolean        @default(false)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  apps                UserApp[]
-  modules             ModuleAccess[]
-  progress            Progress[]
-  badges              UserBadge[]
-  improvSessions      ImprovSession[]
-  kazChatSessions     KazChatSession[]
-  pushSubscriptions   PushSubscription[]
+  id                         Int                       @id @default(autoincrement())
+  email                      String                    @unique
+  username                   String?                   @unique
+  firstName                  String
+  password                   String
+  role                       Role                      @default(MEMBER)
+  profile                    Profile                   @default(ADULT)
+  mustChangePassword         Boolean                   @default(false)
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  apps                       UserApp[]
+  modules                    ModuleAccess[]
+  progress                   Progress[]
+  badges                     UserBadge[]
+  improvSessions             ImprovSession[]
+  kazChatSessions            KazChatSession[]
+  pushSubscriptions          PushSubscription[]
+  messagerieParticipations   ConversationParticipant[]
+  messagerieMessages         Message[]
 }
 
 model App {
@@ -316,4 +318,48 @@ model PushSubscription {
   lastSeenAt  DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ============ MESSAGERIE FAMILIALE (Phase 2) =============
+
+// Une conversation = un thread. Sans titre + 2 participants = DM ; avec titre = groupe.
+model Conversation {
+  id             Int                       @id @default(autoincrement())
+  slug           String?                   @unique   // ex: "famille" pour la convo seedée — null pour convos user-created
+  title          String?                                          // null = DM (afficher les noms des participants)
+  createdById    Int?                                             // user qui a créé la convo (null si seedée)
+  createdAt      DateTime                  @default(now())
+  lastMessageAt  DateTime                  @default(now())
+  participants   ConversationParticipant[]
+  messages       Message[]
+
+  @@index([lastMessageAt])
+}
+
+// Qui participe à la conversation + quand ils ont lu pour la dernière fois.
+model ConversationParticipant {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+// Un message dans une conversation.
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  authorId       Int
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body           String       @db.Text
+  createdAt      DateTime     @default(now())
+  editedAt       DateTime?
+
+  @@index([conversationId, createdAt])
 }

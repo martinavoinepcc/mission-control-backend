@@ -83,6 +83,15 @@ const APPS = [
     isMockup: false,
     realm: 'FAMILY',
   },
+  {
+    slug: 'messagerie',
+    name: 'Messagerie',
+    description: 'Fil de discussion familial avec notifications push.',
+    icon: 'comments',
+    color: '#EC4899',
+    isMockup: false,
+    realm: 'FAMILY',
+  },
   // ───── Travail (admin uniquement) ─────
   {
     slug: 'logifox',
@@ -205,11 +214,81 @@ async function main() {
     });
   }
 
+  // Messagerie : tous les membres famille (les 4)
+  const messagerie = createdApps['messagerie'];
+  if (messagerie) {
+    for (const email of [
+      'marie-josee@my-mission-control.com',
+      'alizee@my-mission-control.com',
+      'jackson@my-mission-control.com',
+    ]) {
+      await prisma.userApp.upsert({
+        where: { userId_appId: { userId: createdUsers[email].id, appId: messagerie.id } },
+        update: { hasAccess: true },
+        create: { userId: createdUsers[email].id, appId: messagerie.id, hasAccess: true },
+      });
+    }
+  }
+
   // Impro Engine vit sous /apps/educatif/impro/ — accès implicite via l'app Éducatif.
   // Seed catégories/thèmes/contraintes LNI (idempotent).
   await seedImprov(prisma);
 
+  // Convo seed "Famille" avec les 4 membres + un welcome message de Martin
+  await seedFamilyConversation(prisma, createdUsers);
+
   console.log('✅ Seed terminé. Aucun module backend — MCreator Academy est full-frontend.');
+}
+
+// ============ MESSAGERIE SEED ============
+
+async function seedFamilyConversation(prisma, createdUsers) {
+  const famille = await prisma.conversation.upsert({
+    where: { slug: 'famille' },
+    update: { title: 'Famille' },
+    create: {
+      slug: 'famille',
+      title: 'Famille',
+      createdById: createdUsers['martin@logifox.io'].id,
+      lastMessageAt: new Date(),
+    },
+  });
+
+  const emails = [
+    'martin@logifox.io',
+    'marie-josee@my-mission-control.com',
+    'alizee@my-mission-control.com',
+    'jackson@my-mission-control.com',
+  ];
+
+  for (const email of emails) {
+    const u = createdUsers[email];
+    if (!u) continue;
+    await prisma.conversationParticipant.upsert({
+      where: { conversationId_userId: { conversationId: famille.id, userId: u.id } },
+      update: {},
+      create: { conversationId: famille.id, userId: u.id },
+    });
+  }
+
+  // Welcome message — créé seulement si la convo est vide (pas d'override des vrais messages)
+  const count = await prisma.message.count({ where: { conversationId: famille.id } });
+  if (count === 0) {
+    const welcome = await prisma.message.create({
+      data: {
+        conversationId: famille.id,
+        authorId: createdUsers['martin@logifox.io'].id,
+        body:
+          'Bienvenue dans la messagerie familiale 💬 ' +
+          "Écrivez-vous ici — les notifications arriveront directement sur vos téléphones.",
+      },
+    });
+    await prisma.conversation.update({
+      where: { id: famille.id },
+      data: { lastMessageAt: welcome.createdAt },
+    });
+  }
+  console.log('✓ Convo Famille seedée (4 participants)');
 }
 
 // ============ IMPRO ENGINE SEED ============
