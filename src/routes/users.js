@@ -28,6 +28,7 @@ router.get('/me', auth, async (req, res) => {
       description: ua.app.description,
       icon: ua.app.icon,
       color: ua.app.color,
+      url: ua.app.url,
       isMockup: ua.app.isMockup,
       isActive: ua.app.isActive,
       realm: ua.app.realm,
