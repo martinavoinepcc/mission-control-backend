@@ -440,23 +440,13 @@ router.post('/:id/read', auth, async (req, res) => {
 
 // DELETE /conversations/:id — supprime la conversation pour tout le monde.
 // Seul un participant peut supprimer (sinon 404). Cascade supprime messages + participants.
-// La convo seedée "famille" (slug = 'famille') est protégée — on ne peut pas la supprimer.
+// Note : la convo "famille" peut être supprimée ; elle sera re-seedée vide au prochain
+// deploy backend (seed idempotent avec upsert sur slug). Intentionnel.
 router.delete('/:id', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const p = await ensureParticipant(req.user.id, id);
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
-
-    const convo = await prisma.conversation.findUnique({
-      where: { id },
-      select: { slug: true },
-    });
-    if (!convo) return res.status(404).json({ erreur: 'Conversation introuvable.' });
-    if (convo.slug === 'famille') {
-      return res.status(403).json({
-        erreur: "La conversation Famille ne peut pas être supprimée (seedée au démarrage).",
-      });
-    }
 
     // Cascade delete via Prisma schema (Message + ConversationParticipant onDelete: Cascade)
     await prisma.conversation.delete({ where: { id } });
