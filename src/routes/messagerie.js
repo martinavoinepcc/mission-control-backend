@@ -1,12 +1,12 @@
 // Routes /conversations — messagerie familiale.
 //
 // Architecture :
-// - GET  /conversations                     → liste des convos de l'user (+ last msg + unread)
-// - GET  /conversations/:id                 → détails d'une convo + participants
+// - GET  /conversations                     → liste des convos (+ last msg + unread + avatars)
+// - GET  /conversations/:id                 → détails d'une convo + participants (+ avatars)
 // - POST /conversations                     → crée une convo (body: { title?, participantIds })
 // - GET  /conversations/:id/messages        → liste les messages (?limit=50&before=<id>)
-// - POST /conversations/:id/messages        → envoie un message + push auto aux autres participants
-// - POST /conversations/:id/read            → reset lastReadAt (clear unread badge)
+// - POST /conversations/:id/messages        → envoie un message + push auto. Body: { body, image? }
+// - POST /conversations/:id/read            → reset lastReadAt
 
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -16,12 +16,15 @@ const pushModule = require('./push');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// Helper importé depuis push.js (exporté comme propriété du router). Peut être undefined
-// si push.js n'est pas encore chargé pour une raison quelconque — fallback silencieux.
 const sendPushToUser = pushModule && pushModule.sendPushToUser;
 
-// Utilitaire : vérifie que l'user est participant de la convo. Retourne le participant
-// row (ou null). Factorise les checks 403 dans chaque route.
+// Limite taille image message (base64) — ~600 KB brut
+const MAX_IMAGE_BASE64_BYTES = 700 * 1024;
+
+// Base URL pour les avatars dans les push icon (doit être absolue).
+const PUBLIC_API_URL =
+  process.env.PUBLIC_API_URL || 'https://api.my-mission-control.com';
+
 async function ensureParticipant(userId, conversationId) {
   if (!Number.isFinite(conversationId) || conversationId <= 0) return null;
   return prisma.conversationParticipant.findUnique({
@@ -29,18 +32,24 @@ async function ensureParticipant(userId, conversationId) {
   });
 }
 
-// GET /conversations — liste des convos de l'user
+// GET /conversations — liste
 router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
-
     const participations = await prisma.conversationParticipant.findMany({
       where: { userId },
       include: {
         conversation: {
           include: {
             participants: {
-              include: { user: { select: { id: true, firstName: true, username: true } } },
+              include: {
+                user: {
+                  select: {
+                    id: true, firstName: true, username: true, avatarData: true,
+                    avatarUpdatedAt: true,
+                  },
+                },
+              },
             },
             messages: {
               orderBy: { createdAt: 'desc' },
@@ -52,7 +61,6 @@ router.get('/', auth, async (req, res) => {
       },
     });
 
-    // Compute unread count per convo (messages after lastReadAt, authored by someone else)
     const results = await Promise.all(
       participations.map(async (p) => {
         const convo = p.conversation;
@@ -73,6 +81,8 @@ router.get('/', auth, async (req, res) => {
           participants: convo.participants.map((cp) => ({
             id: cp.user.id,
             firstName: cp.user.firstName,
+            hasAvatar: !!cp.user.avatarData,
+            avatarUpdatedAt: cp.user.avatarUpdatedAt,
           })),
           lastMessage: lastMsg
             ? {
@@ -95,7 +105,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// GET /conversations/:id — détails d'une convo (participants, title)
+// GET /conversations/:id
 router.get('/:id', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -106,7 +116,14 @@ router.get('/:id', auth, async (req, res) => {
       where: { id },
       include: {
         participants: {
-          include: { user: { select: { id: true, firstName: true, username: true } } },
+          include: {
+            user: {
+              select: {
+                id: true, firstName: true, username: true,
+                avatarData: true, avatarUpdatedAt: true,
+              },
+            },
+          },
         },
       },
     });
@@ -122,6 +139,8 @@ router.get('/:id', auth, async (req, res) => {
         id: cp.user.id,
         firstName: cp.user.firstName,
         username: cp.user.username,
+        hasAvatar: !!cp.user.avatarData,
+        avatarUpdatedAt: cp.user.avatarUpdatedAt,
       })),
     });
   } catch (err) {
@@ -130,9 +149,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /conversations — crée une nouvelle convo
-// body: { title?: string, participantIds: number[] }
-// L'auteur est auto-ajouté s'il n'est pas dans participantIds.
+// POST /conversations — crée
 router.post('/', auth, async (req, res) => {
   try {
     const { title, participantIds } = req.body || {};
@@ -148,7 +165,6 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ erreur: 'Une conversation doit avoir au moins 2 participants.' });
     }
 
-    // Vérifie que tous les participants existent
     const users = await prisma.user.findMany({ where: { id: { in: sanitized } } });
     if (users.length !== sanitized.length) {
       return res.status(400).json({ erreur: 'Un ou plusieurs utilisateurs introuvables.' });
@@ -164,7 +180,14 @@ router.post('/', auth, async (req, res) => {
       },
       include: {
         participants: {
-          include: { user: { select: { id: true, firstName: true } } },
+          include: {
+            user: {
+              select: {
+                id: true, firstName: true,
+                avatarData: true, avatarUpdatedAt: true,
+              },
+            },
+          },
         },
       },
     });
@@ -177,6 +200,8 @@ router.post('/', auth, async (req, res) => {
       participants: convo.participants.map((cp) => ({
         id: cp.user.id,
         firstName: cp.user.firstName,
+        hasAvatar: !!cp.user.avatarData,
+        avatarUpdatedAt: cp.user.avatarUpdatedAt,
       })),
     });
   } catch (err) {
@@ -185,8 +210,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// GET /conversations/:id/messages — liste les messages (oldest first, pour rendu direct en thread)
-// ?limit=50&before=<messageId> pour pagination (charge des messages plus anciens)
+// GET /conversations/:id/messages
 router.get('/:id/messages', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -202,7 +226,6 @@ router.get('/:id/messages', auth, async (req, res) => {
     const where = { conversationId: id };
     if (Number.isFinite(beforeId) && beforeId > 0) where.id = { lt: beforeId };
 
-    // On récupère les N derniers, puis on renverse pour retour oldest-first.
     const recent = await prisma.message.findMany({
       where,
       orderBy: { id: 'desc' },
@@ -215,6 +238,9 @@ router.get('/:id/messages', auth, async (req, res) => {
       authorId: m.authorId,
       authorFirstName: m.author ? m.author.firstName : null,
       body: m.body,
+      imageData: m.imageData || null,
+      imageWidth: m.imageWidth || null,
+      imageHeight: m.imageHeight || null,
       createdAt: m.createdAt,
       editedAt: m.editedAt,
     }));
@@ -226,8 +252,7 @@ router.get('/:id/messages', auth, async (req, res) => {
   }
 });
 
-// POST /conversations/:id/messages — envoie un message + push auto
-// body: { body: string }
+// POST /conversations/:id/messages — envoie un message (texte et/ou image) + push auto
 router.post('/:id/messages', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -236,14 +261,45 @@ router.post('/:id/messages', auth, async (req, res) => {
 
     const raw = (req.body && req.body.body) || '';
     const body = String(raw).trim();
-    if (!body) return res.status(400).json({ erreur: 'Message vide.' });
-    if (body.length > 4000) return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
+    const image = req.body && req.body.image; // { data, width, height } or undefined
+
+    if (!body && !image) {
+      return res.status(400).json({ erreur: 'Message vide (texte ou image requis).' });
+    }
+    if (body.length > 4000) {
+      return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
+    }
+
+    let imageData = null;
+    let imageWidth = null;
+    let imageHeight = null;
+    if (image && typeof image.data === 'string') {
+      if (!image.data.startsWith('data:image/')) {
+        return res.status(400).json({ erreur: 'Image invalide (data URL attendue).' });
+      }
+      if (image.data.length > MAX_IMAGE_BASE64_BYTES) {
+        return res.status(413).json({
+          erreur: `Image trop volumineuse (${Math.round(image.data.length / 1024)} KB). Max ~${Math.round(MAX_IMAGE_BASE64_BYTES / 1024)} KB.`,
+        });
+      }
+      imageData = image.data;
+      imageWidth = Number.isFinite(image.width) ? Math.max(1, Math.floor(image.width)) : null;
+      imageHeight = Number.isFinite(image.height) ? Math.max(1, Math.floor(image.height)) : null;
+    }
 
     const now = new Date();
     const [msg] = await prisma.$transaction([
       prisma.message.create({
-        data: { conversationId: id, authorId: req.user.id, body, createdAt: now },
-        include: { author: { select: { id: true, firstName: true } } },
+        data: {
+          conversationId: id,
+          authorId: req.user.id,
+          body,
+          imageData,
+          imageWidth,
+          imageHeight,
+          createdAt: now,
+        },
+        include: { author: { select: { id: true, firstName: true, avatarData: true } } },
       }),
       prisma.conversation.update({
         where: { id },
@@ -255,7 +311,6 @@ router.post('/:id/messages', auth, async (req, res) => {
       }),
     ]);
 
-    // Push auto à tous les autres participants, best-effort (pas bloquant pour la réponse)
     if (typeof sendPushToUser === 'function') {
       (async () => {
         try {
@@ -267,20 +322,32 @@ router.post('/:id/messages', auth, async (req, res) => {
             where: { id },
             select: { title: true, slug: true },
           });
+          const authorName = msg.author.firstName;
           const title = convo && convo.title
-            ? `${convo.title} · ${msg.author.firstName}`
-            : `Mission Control · ${msg.author.firstName}`;
-          const preview = body.length > 90 ? body.slice(0, 87) + '…' : body;
+            ? `${convo.title} · ${authorName}`
+            : authorName;
+          let preview;
+          if (body && imageData) preview = `📷 ${body.length > 80 ? body.slice(0, 77) + '…' : body}`;
+          else if (imageData) preview = '📷 a envoyé une photo';
+          else preview = body.length > 100 ? body.slice(0, 97) + '…' : body;
+
+          const iconUrl = msg.author.avatarData
+            ? `${PUBLIC_API_URL}/users/${msg.author.id}/avatar`
+            : '/icons/icon-192.png';
+
           const payload = {
             title,
             body: preview,
             url: `/apps/messagerie/thread/?id=${id}`,
             tag: `convo-${id}`,
+            icon: iconUrl,
           };
           await Promise.all(
-            otherParticipants.map((op) => sendPushToUser(op.userId, payload).catch((e) => {
-              console.warn('[messagerie] push fail for user', op.userId, e && e.message);
-            }))
+            otherParticipants.map((op) =>
+              sendPushToUser(op.userId, payload).catch((e) => {
+                console.warn('[messagerie] push fail for user', op.userId, e && e.message);
+              })
+            )
           );
         } catch (e) {
           console.warn('[messagerie] push dispatch failed:', e && e.message);
@@ -293,6 +360,9 @@ router.post('/:id/messages', auth, async (req, res) => {
       authorId: msg.authorId,
       authorFirstName: msg.author ? msg.author.firstName : null,
       body: msg.body,
+      imageData: msg.imageData || null,
+      imageWidth: msg.imageWidth || null,
+      imageHeight: msg.imageHeight || null,
       createdAt: msg.createdAt,
     });
   } catch (err) {
@@ -301,7 +371,7 @@ router.post('/:id/messages', auth, async (req, res) => {
   }
 });
 
-// POST /conversations/:id/read — marque la convo lue (réinitialise le unread badge)
+// POST /conversations/:id/read
 router.post('/:id/read', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
