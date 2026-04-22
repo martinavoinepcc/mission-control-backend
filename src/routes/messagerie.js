@@ -274,7 +274,7 @@ router.post('/:id/messages', auth, async (req, res) => {
           const payload = {
             title,
             body: preview,
-            url: `/apps/messagerie/${id}`,
+            url: `/apps/messagerie/thread/?id=${id}`,
             tag: `convo-${id}`,
           };
           await Promise.all(
