@@ -96,11 +96,12 @@ const APPS = [
   {
     slug: 'qscale',
     name: 'QScale',
-    description: 'Projet QScale — bientôt.',
+    description: 'OPSEC Mission Control — plateforme sécurité privée.',
     icon: 'chart-line',
     color: '#0EA5E9',
-    isMockup: true,
+    isMockup: false,
     realm: 'WORK',
+    url: 'https://qscale-opsec.onrender.com',
   },
 ];
 
@@ -161,6 +162,7 @@ async function main() {
       update: {
         name: a.name,
         description: a.description,
+        url: a.url ?? null,
         icon: a.icon,
         color: a.color,
         isMockup: a.isMockup,
