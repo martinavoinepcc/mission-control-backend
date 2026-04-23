@@ -379,7 +379,8 @@ router.post('/:id/messages', auth, async (req, res) => {
           else if (imageData) preview = '📷 a envoyé une photo';
           else preview = body.length > 100 ? body.slice(0, 97) + '…' : body;
 
-          const iconUrl = msg.author.avatarData
+          const hasAvatar = !!msg.author.avatarData;
+          const iconUrl = hasAvatar
             ? `${PUBLIC_API_URL}/users/${msg.author.id}/avatar`
             : '/icons/icon-192.png';
 
@@ -389,6 +390,10 @@ router.post('/:id/messages', auth, async (req, res) => {
             url: `/apps/messagerie/thread/?id=${id}`,
             tag: `convo-${id}`,
             icon: iconUrl,
+            // Large preview image (Android expanded notif + iOS long-press).
+            // iOS forces the PWA icon on the lock-screen thumbnail no matter what,
+            // so this is the only way to surface the sender's photo on iPhone.
+            ...(hasAvatar ? { image: iconUrl } : {}),
           };
           await Promise.all(
             otherParticipants.map((op) =>
