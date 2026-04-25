@@ -48,6 +48,13 @@ app.use(
 // lise X-Forwarded-For correctement (supprime le warning au boot).
 app.set('trust proxy', 1);
 
+// FRIDAY pull-mode : DOIT être monté AVANT express.json() global, sinon le
+// middleware json consomme le body et express.raw() du pullRouter ne reçoit
+// rien (req.body est l'objet parsé au lieu d'un Buffer → HMAC fail).
+//   - GET  /api/friday/poll    : long-poll côté FRIDAY pour récupérer les messages user
+//   - POST /api/friday/webhook : FRIDAY pousse sa réponse (avec pendingId) ou un message proactif
+app.use('/api/friday', fridayPullRouter);
+
 // 4 MB : laisse de la marge pour une image message webp ~1.5 MB + overhead base64/JSON.
 app.use(express.json({ limit: '4mb' }));
 
@@ -69,11 +76,6 @@ app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
-// FRIDAY pull-mode (HMAC seulement, pas de JWT) :
-//   - GET  /api/friday/poll    : long-poll côté FRIDAY pour récupérer les messages user
-//   - POST /api/friday/webhook : FRIDAY pousse sa réponse (avec pendingId) ou un message proactif
-// DOIT être monté AVANT le router /friday qui parse le body JSON et exige JWT.
-app.use('/api/friday', fridayPullRouter);
 app.use('/friday', fridayRoutes);
 
 app.use((req, res) => {
