@@ -343,8 +343,24 @@ router.post('/conversations/:id/messages', async (req, res) => {
     function sse(event) {
       try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch {}
     }
+    // Émet un long delta en chunks de 1500 chars max — évite les problèmes de
+    // buffering sur les proxies (Render/Cloudflare/etc.) qui peuvent traiter
+    // mal des frames SSE > 8 KB.
+    const DELTA_CHUNK = 1500;
+    function sseDelta(text) {
+      if (!text) return;
+      for (let i = 0; i < text.length; i += DELTA_CHUNK) {
+        sse({ type: 'delta', text: text.slice(i, i + DELTA_CHUNK) });
+      }
+    }
     sse({ type: 'user-saved', message: shapeMessage(userMsg) });
     if (titleUpdated) sse({ type: 'title', title: titleUpdated });
+
+    // Keepalive : commentaire SSE toutes les 15s pour empêcher le proxy de
+    // fermer la connexion idle pendant qu'on attend FRIDAY (peut prendre 25-90s).
+    const keepaliveTimer = setInterval(() => {
+      try { res.write(`: keepalive ${Date.now()}\n\n`); } catch {}
+    }, 15_000);
 
     // 5. Si HMAC pas configuré → fallback friendly
     if (!FRIDAY_HMAC_SECRET) {
@@ -359,6 +375,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
       });
       sse({ type: 'delta', text: fallbackText });
       sse({ type: 'done', message: shapeMessage(saved) });
+      clearInterval(keepaliveTimer);
       res.end();
       return;
     }
@@ -413,11 +430,13 @@ router.post('/conversations/:id/messages', async (req, res) => {
       metadata = response.metadata || null;
       assistantSaved = await prisma.fridayMessage.findUnique({ where: { id: response.messageId } });
       if (!clientDisconnected) {
-        sse({ type: 'delta', text: fullText });
+        sseDelta(fullText);
         sse({ type: 'done', message: shapeMessage(assistantSaved || { id: response.messageId, role: 'assistant', content: fullText, metadata, createdAt: new Date() }) });
       }
+      clearInterval(keepaliveTimer);
       res.end();
     } catch (err) {
+      clearInterval(keepaliveTimer);
       // Timeout — marque le pending en erreur (ne sera plus claim)
       try {
         await prisma.fridayPendingMessage.update({
