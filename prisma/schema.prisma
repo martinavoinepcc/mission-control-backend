@@ -349,6 +349,23 @@ model FridayMessage {
   @@index([conversationId, createdAt])
 }
 
+// File d'attente pull-mode : messages user en attente d'être consommés par FRIDAY.
+// FRIDAY long-polls /api/friday/poll, claim un pending, traite, POST sa réponse à
+// /api/friday/webhook avec pendingId. Une fois respondedAt set, le pending est
+// archivé (mais on le garde pour debug / replay).
+model FridayPendingMessage {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  conversationId Int
+  payload        Json      // user, conversation, message, history, context — ce que FRIDAY reçoit
+  claimedAt      DateTime?
+  respondedAt    DateTime?
+  errorMessage   String?   @db.Text
+  createdAt      DateTime  @default(now())
+
+  @@index([claimedAt, respondedAt, createdAt])
+}
+
 // ============ MESSAGERIE FAMILIALE =============
 
 model Conversation {

@@ -1,24 +1,23 @@
-// FRIDAY bridge — pont chat entre Mission Control et l'agent Hermes domestique.
-// Architecture : Mission Control reçoit un message du user (Martin), forward
-// vers FRIDAY via webhook HTTP signé HMAC, stream la réponse retour en SSE.
+// FRIDAY bridge — pont chat Mission Control ↔ agent Hermes domestique.
 //
-// FRIDAY peut répondre :
-//   A) JSON synchrone     → { reply: "...", metadata?: {...} }
-//   B) SSE streaming      → data: {type:"delta",text:"..."} ... {type:"done"}
+// MODE : PULL (FRIDAY initie toutes les connexions sortantes).
+//   - FRIDAY long-polls GET /api/friday/poll (HMAC) → reçoit le prochain message user.
+//   - FRIDAY traite, POST /api/friday/webhook (HMAC) avec { pendingId, content, metadata }.
+//   - Mission Control match la réponse au SSE en attente du browser et le complète.
 //
-// Le client web reçoit toujours du SSE, peu importe le format de FRIDAY.
-//
-// Identité : chaque requête vers FRIDAY contient le user complet (id, role,
-// firstName, isOwner) pour que FRIDAY décide quoi répondre selon qui parle.
+// FRIDAY n'est JAMAIS exposée publiquement. Aucun tunnel requis.
 //
 // Sécurité :
-//   - JWT user-side
-//   - Phase 1 : admin uniquement (Martin)
-//   - HMAC-SHA256 signature outbound, anti-replay via timestamp
-//   - HMAC-SHA256 signature inbound (webhook proactif depuis FRIDAY)
+//   - Browser-side : JWT + admin-only via requireOwner (Phase 1, Martin seulement).
+//   - FRIDAY-side  : HMAC-SHA256 sur "<timestamp>.<payload>" + anti-replay 5 min.
+//
+// HMAC formules :
+//   - Pour le poll (GET /api/friday/poll?req=<uuid>) : payload = uuid de la query.
+//   - Pour le webhook (POST /api/friday/webhook)     : payload = raw body string.
 
 const express = require('express');
 const crypto = require('crypto');
+const EventEmitter = require('events');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
 
@@ -26,20 +25,22 @@ const prisma = new PrismaClient();
 const router = express.Router();
 
 // ───────── Configuration ─────────
-// FRIDAY_INTERNAL_URL : URL HTTPS où l'agent FRIDAY/Hermes écoute. Mission Control
-// (Render Oregon) doit pouvoir l'atteindre — donc cette URL doit être joignable
-// depuis Internet (tunnel sortant Cloudflare/ngrok, ou FRIDAY déployée en cloud).
-// Fallback legacy `FRIDAY_WEBHOOK_URL` accepté le temps de la migration.
-const FRIDAY_INTERNAL_URL = process.env.FRIDAY_INTERNAL_URL || process.env.FRIDAY_WEBHOOK_URL || '';
 const FRIDAY_HMAC_SECRET = process.env.FRIDAY_HMAC_SECRET || '';
 const FRIDAY_TIMEOUT_MS = Number(process.env.FRIDAY_TIMEOUT_MS) || 90000;
 const FRIDAY_MAX_HISTORY = Number(process.env.FRIDAY_MAX_HISTORY) || 30;
 const FRIDAY_VERSION = '1.0';
 const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 min anti-replay
+const POLL_TIMEOUT_MS = 25_000;          // long-poll côté FRIDAY (sub-30s pour être < timeout proxy)
+
+// EventEmitter in-process — matchmaking entre poll/webhook/SSE.
+// Render backend = 1 worker → in-memory OK. Si on scale, passer à Redis pubsub.
+const fridayEvents = new EventEmitter();
+fridayEvents.setMaxListeners(200);
+
+// Track last successful poll (pour le statut UI "FRIDAY active").
+let lastPollAt = 0;
 
 // ───────── Auth admin-only (Phase 1) ─────────
-// Phase 2 (futur) : retirer ce middleware ou le rendre conditionnel pour donner
-// accès aux enfants. FRIDAY décidera quoi répondre selon le user payload.
 async function requireOwner(req, res, next) {
   try {
     if (!req.user || req.user.role !== 'ADMIN') {
@@ -55,21 +56,30 @@ router.use(auth);
 router.use(requireOwner);
 
 // ───────── HMAC helpers ─────────
-function signPayload(timestampMs, bodyString) {
+function computeSignature(timestampMs, payloadString) {
   if (!FRIDAY_HMAC_SECRET) return '';
   const h = crypto.createHmac('sha256', FRIDAY_HMAC_SECRET);
-  h.update(`${timestampMs}.${bodyString}`);
+  h.update(`${timestampMs}.${payloadString}`);
   return `sha256=${h.digest('hex')}`;
 }
 
-function verifyInboundSignature(timestampMs, bodyString, sigHeader) {
+function verifySignature(timestampMs, payloadString, sigHeader) {
   if (!FRIDAY_HMAC_SECRET || !sigHeader) return false;
-  const expected = signPayload(timestampMs, bodyString);
-  if (expected.length !== sigHeader.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sigHeader));
+  const expected = computeSignature(timestampMs, payloadString);
+  if (!expected || expected.length !== sigHeader.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sigHeader));
+  } catch {
+    return false;
+  }
 }
 
-// ───────── Helpers ─────────
+function checkTimestamp(ts) {
+  if (!Number.isFinite(ts)) return false;
+  return Math.abs(Date.now() - ts) <= REPLAY_WINDOW_MS;
+}
+
+// ───────── Shape helpers ─────────
 function shapeUser(user) {
   return {
     id: user.id,
@@ -107,16 +117,73 @@ function shapeMessage(m) {
 }
 
 async function autoTitleFromFirstMessage(text) {
-  // Titre simple : 50 premiers chars de la 1re ligne, trim ponctuation.
   const firstLine = (text || '').split('\n')[0].trim();
   if (!firstLine) return 'Nouvelle conversation';
   const truncated = firstLine.length > 50 ? firstLine.slice(0, 50).trim() + '…' : firstLine;
   return truncated.replace(/[.!?…]+$/, '') || 'Nouvelle conversation';
 }
 
+// ───────── Pull-mode plumbing ─────────
+
+// Tente de claim atomiquement le prochain pending non-claimed et non-respondu.
+async function claimNextPending() {
+  // Étape 1 : trouver le candidat le plus ancien
+  const candidate = await prisma.fridayPendingMessage.findFirst({
+    where: { claimedAt: null, respondedAt: null },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!candidate) return null;
+  // Étape 2 : claim atomique (updateMany avec where strict pour éviter race)
+  const r = await prisma.fridayPendingMessage.updateMany({
+    where: { id: candidate.id, claimedAt: null, respondedAt: null },
+    data: { claimedAt: new Date() },
+  });
+  if (r.count === 0) return null; // un autre poll a claim entre-temps
+  return prisma.fridayPendingMessage.findUnique({ where: { id: candidate.id } });
+}
+
+async function tryClaimById(pendingId) {
+  const r = await prisma.fridayPendingMessage.updateMany({
+    where: { id: pendingId, claimedAt: null, respondedAt: null },
+    data: { claimedAt: new Date() },
+  });
+  if (r.count === 0) return null;
+  return prisma.fridayPendingMessage.findUnique({ where: { id: pendingId } });
+}
+
+function buildPollPayload(pending) {
+  return {
+    pendingId: pending.id,
+    ...(pending.payload || {}),
+  };
+}
+
+// Attend la réponse FRIDAY pour un pendingId, avec timeout.
+function waitForFridayResponse(pendingId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const handler = (payload) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(payload);
+    };
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(new Error('timeout'));
+    }, timeoutMs);
+    function cleanup() {
+      clearTimeout(timer);
+      fridayEvents.off(`response:${pendingId}`, handler);
+    }
+    fridayEvents.once(`response:${pendingId}`, handler);
+  });
+}
+
 // ───────── Routes : conversations CRUD ─────────
 
-// GET /friday/conversations — liste les conversations de l'utilisateur
 router.get('/conversations', async (req, res) => {
   try {
     const includeArchived = req.query.archived === '1';
@@ -132,7 +199,11 @@ router.get('/conversations', async (req, res) => {
     res.json({
       conversations: list.map(shapeConversationSummary),
       bridge: {
-        configured: !!FRIDAY_INTERNAL_URL && !!FRIDAY_HMAC_SECRET,
+        configured: !!FRIDAY_HMAC_SECRET,
+        // Active = FRIDAY a poll dans les 60 dernières secondes
+        active: !!FRIDAY_HMAC_SECRET && (Date.now() - lastPollAt) < 60_000,
+        lastPollAt: lastPollAt ? new Date(lastPollAt).toISOString() : null,
+        mode: 'pull',
       },
     });
   } catch (err) {
@@ -141,7 +212,6 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
-// POST /friday/conversations — crée une nouvelle conversation
 router.post('/conversations', async (req, res) => {
   try {
     const title = (req.body?.title || 'Nouvelle conversation').toString().slice(0, 200);
@@ -155,7 +225,6 @@ router.post('/conversations', async (req, res) => {
   }
 });
 
-// GET /friday/conversations/:id — détails + messages
 router.get('/conversations/:id', async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -175,21 +244,17 @@ router.get('/conversations/:id', async (req, res) => {
   }
 });
 
-// PATCH /friday/conversations/:id — rename / pin / archive
 router.patch('/conversations/:id', async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ erreur: 'id invalide.' });
-
     const owned = await prisma.fridayConversation.findFirst({ where: { id, userId: req.user.id } });
     if (!owned) return res.status(404).json({ erreur: 'Conversation introuvable.' });
-
     const data = {};
     if (typeof req.body?.title === 'string') data.title = req.body.title.slice(0, 200);
     if (typeof req.body?.pinned === 'boolean') data.pinned = req.body.pinned;
     if (req.body?.archived === true) data.archivedAt = new Date();
     if (req.body?.archived === false) data.archivedAt = null;
-
     const updated = await prisma.fridayConversation.update({ where: { id }, data });
     res.json({ conversation: shapeConversationSummary(updated) });
   } catch (err) {
@@ -198,7 +263,6 @@ router.patch('/conversations/:id', async (req, res) => {
   }
 });
 
-// DELETE /friday/conversations/:id
 router.delete('/conversations/:id', async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -213,14 +277,14 @@ router.delete('/conversations/:id', async (req, res) => {
   }
 });
 
-// ───────── Route : envoi message + forward FRIDAY ─────────
+// ───────── Route : envoi message + attente réponse FRIDAY (pull-mode) ─────────
 // POST /friday/conversations/:id/messages
 // Body : { content: string }
-// Stream SSE : { type:"user-saved", message } | { type:"delta", text } | { type:"done", message } | { type:"error", error }
+// Stream SSE : { type:"user-saved", message } | { type:"title", title } |
+//              { type:"delta", text } | { type:"done", message } | { type:"error", error }
 router.post('/conversations/:id/messages', async (req, res) => {
   const conversationId = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(conversationId)) return res.status(400).json({ erreur: 'id invalide.' });
-
   const content = (req.body?.content || '').toString().trim();
   if (!content) return res.status(400).json({ erreur: 'content requis.' });
   if (content.length > 8000) return res.status(400).json({ erreur: 'Message trop long (max 8000 caractères).' });
@@ -236,14 +300,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
     // 1. Sauve le message user
     const userMsg = await prisma.fridayMessage.create({
-      data: {
-        conversationId,
-        role: 'user',
-        content,
-      },
+      data: { conversationId, role: 'user', content },
     });
 
-    // 2. Auto-titre si c'est le 1er message
+    // 2. Auto-titre 1er message
     const msgCount = await prisma.fridayMessage.count({ where: { conversationId } });
     let titleUpdated = null;
     if (msgCount === 1 && convo.title === 'Nouvelle conversation') {
@@ -280,26 +340,18 @@ router.post('/conversations/:id/messages', async (req, res) => {
       'X-Accel-Buffering': 'no',
     });
     res.flushHeaders?.();
-
     function sse(event) {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch {}
     }
-
     sse({ type: 'user-saved', message: shapeMessage(userMsg) });
     if (titleUpdated) sse({ type: 'title', title: titleUpdated });
 
-    // 5. Si bridge non configuré → message d'erreur friendly
-    if (!FRIDAY_INTERNAL_URL || !FRIDAY_HMAC_SECRET) {
+    // 5. Si HMAC pas configuré → fallback friendly
+    if (!FRIDAY_HMAC_SECRET) {
       const fallbackText =
-        "FRIDAY n'est pas encore branchée. Configure FRIDAY_INTERNAL_URL + FRIDAY_HMAC_SECRET dans Render pour activer le pont. " +
-        '(Voir le guide de branchement.)';
+        "FRIDAY n'est pas encore branchée. Configure FRIDAY_HMAC_SECRET dans Render et démarre la boucle de poll côté FRIDAY.";
       const saved = await prisma.fridayMessage.create({
-        data: {
-          conversationId,
-          role: 'assistant',
-          content: fallbackText,
-          errorMessage: 'BRIDGE_NOT_CONFIGURED',
-        },
+        data: { conversationId, role: 'assistant', content: fallbackText, errorMessage: 'BRIDGE_NOT_CONFIGURED' },
       });
       await prisma.fridayConversation.update({
         where: { id: conversationId },
@@ -311,11 +363,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
       return;
     }
 
-    // 6. Build payload to FRIDAY
-    const timestamp = Date.now();
-    const payload = {
+    // 6. Build payload + crée pending en DB
+    const fridayPayload = {
       version: FRIDAY_VERSION,
-      timestamp,
       user: shapeUser(userRow),
       conversation: {
         id: convo.id,
@@ -334,131 +384,68 @@ router.post('/conversations/:id/messages', async (req, res) => {
         tags: userRow.role === 'ADMIN' ? ['owner'] : ['member'],
       },
     };
-    const bodyString = JSON.stringify(payload);
-    const signature = signPayload(timestamp, bodyString);
+    const pending = await prisma.fridayPendingMessage.create({
+      data: {
+        userId: userRow.id,
+        conversationId,
+        payload: fridayPayload,
+      },
+    });
 
-    // 7. Forward to FRIDAY with timeout
+    // 7. Setup waiter AVANT de notifier (race-free)
+    const waitPromise = waitForFridayResponse(pending.id, FRIDAY_TIMEOUT_MS);
+
+    // 8. Notifie les pollers en attente
+    fridayEvents.emit('pending', pending.id);
+
+    // 9. Cleanup si client disconnect
+    let clientDisconnected = false;
+    req.on('close', () => { clientDisconnected = true; });
+
+    // 10. Attend la réponse
     let fullText = '';
     let metadata = null;
     let assistantSaved = null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FRIDAY_TIMEOUT_MS);
-
     try {
-      const upstream = await fetch(FRIDAY_INTERNAL_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream, application/json',
-          'X-MC-Signature': signature,
-          'X-MC-Timestamp': String(timestamp),
-          'X-MC-Version': FRIDAY_VERSION,
-          'User-Agent': 'mission-control-bridge/1.0',
-        },
-        body: bodyString,
-        signal: controller.signal,
-      });
-
-      if (!upstream.ok) {
-        const errText = await upstream.text().catch(() => '');
-        throw new Error(`FRIDAY ${upstream.status}: ${errText.slice(0, 200)}`);
+      const response = await waitPromise;
+      // response = { messageId, content, metadata }
+      fullText = response.content || '';
+      metadata = response.metadata || null;
+      assistantSaved = await prisma.fridayMessage.findUnique({ where: { id: response.messageId } });
+      if (!clientDisconnected) {
+        sse({ type: 'delta', text: fullText });
+        sse({ type: 'done', message: shapeMessage(assistantSaved || { id: response.messageId, role: 'assistant', content: fullText, metadata, createdAt: new Date() }) });
       }
-
-      const ct = (upstream.headers.get('content-type') || '').toLowerCase();
-
-      if (ct.includes('text/event-stream') && upstream.body) {
-        // Stream-forward: parse SSE lines, re-emit deltas
-        const reader = upstream.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx;
-          while ((idx = buffer.indexOf('\n\n')) !== -1) {
-            const rawEvent = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            const lines = rawEvent.split('\n');
-            for (const line of lines) {
-              if (!line.startsWith('data:')) continue;
-              const dataStr = line.slice(5).trim();
-              if (!dataStr) continue;
-              try {
-                const ev = JSON.parse(dataStr);
-                if (ev.type === 'delta' && typeof ev.text === 'string') {
-                  fullText += ev.text;
-                  sse({ type: 'delta', text: ev.text });
-                } else if (ev.type === 'done') {
-                  metadata = ev.metadata || null;
-                } else if (ev.type === 'error') {
-                  throw new Error(ev.error || 'FRIDAY error');
-                } else {
-                  // forward inconnu (ex: thinking, tool-use)
-                  sse(ev);
-                }
-              } catch (parseErr) {
-                // pas du JSON valide — ignore (peut-être un keepalive)
-              }
-            }
-          }
-        }
-      } else {
-        // JSON synchrone
-        const data = await upstream.json();
-        const text = (data.reply || data.content || '').toString();
-        if (!text) throw new Error('Réponse FRIDAY vide.');
-        fullText = text;
-        metadata = data.metadata || null;
-        // Émet en un seul delta pour cohérence client
-        sse({ type: 'delta', text });
-      }
+      res.end();
     } catch (err) {
-      clearTimeout(timer);
-      const errMsg = err.name === 'AbortError'
-        ? 'FRIDAY a pris trop de temps à répondre (timeout).'
-        : `Erreur FRIDAY : ${err.message || err}`;
-      console.error('[friday bridge]', errMsg);
+      // Timeout — marque le pending en erreur (ne sera plus claim)
+      try {
+        await prisma.fridayPendingMessage.update({
+          where: { id: pending.id },
+          data: { errorMessage: 'TIMEOUT', respondedAt: new Date() },
+        });
+      } catch {}
+      const errorText = "FRIDAY n'a pas répondu à temps. Vérifie que sa boucle de poll tourne.";
       const saved = await prisma.fridayMessage.create({
         data: {
           conversationId,
           role: 'assistant',
-          content: fullText || 'FRIDAY est temporairement injoignable. Réessaie dans un instant.',
-          errorMessage: errMsg.slice(0, 500),
-          metadata: metadata || null,
+          content: errorText,
+          errorMessage: 'FRIDAY_TIMEOUT',
         },
       });
       await prisma.fridayConversation.update({
         where: { id: conversationId },
         data: { lastMessageAt: saved.createdAt },
       });
-      sse({ type: 'error', error: errMsg, message: shapeMessage(saved) });
+      if (!clientDisconnected) {
+        sse({ type: 'error', error: 'Timeout : FRIDAY n\'a pas répondu.', message: shapeMessage(saved) });
+      }
       res.end();
-      return;
     }
-    clearTimeout(timer);
-
-    // 8. Sauve la réponse de FRIDAY
-    assistantSaved = await prisma.fridayMessage.create({
-      data: {
-        conversationId,
-        role: 'assistant',
-        content: fullText,
-        metadata: metadata || null,
-      },
-    });
-    await prisma.fridayConversation.update({
-      where: { id: conversationId },
-      data: { lastMessageAt: assistantSaved.createdAt },
-    });
-
-    sse({ type: 'done', message: shapeMessage(assistantSaved) });
-    res.end();
   } catch (err) {
     console.error('POST /friday/conversations/:id/messages', err);
-    if (!res.headersSent) {
-      return res.status(500).json({ erreur: 'Erreur serveur.' });
-    }
+    if (!res.headersSent) return res.status(500).json({ erreur: 'Erreur serveur.' });
     try {
       res.write(`data: ${JSON.stringify({ type: 'error', error: 'Server error' })}\n\n`);
       res.end();
@@ -466,63 +453,150 @@ router.post('/conversations/:id/messages', async (req, res) => {
   }
 });
 
-// ───────── Route inbound : FRIDAY peut pousser un message proactif ─────────
-// POST /friday/inbound  (HMAC verified, pas de JWT — c'est FRIDAY qui appelle)
-// Body : {
-//   userId: number,                 // qui doit recevoir le message
-//   conversationId?: number,        // si null → crée une nouvelle convo
-//   conversationTitle?: string,
-//   content: string,                // le message
-//   metadata?: any
-// }
-router.post('/inbound', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
-  // Note : c'est mounté APRÈS les middlewares auth/requireOwner ci-dessus, mais
-  // Express n'applique pas un router-level use à des routes après — sauf si elles
-  // sont déclarées sur le même router. Donc auth s'applique. On bypasse en
-  // déclarant ce handler dans un sous-routeur ou en vérifiant manuellement.
-  // Pour simplicité : ce handler ne sera pas atteint par les clients web (pas
-  // de JWT), donc auth retournera 401. SOLUTION : on déplace cet endpoint dans
-  // un router séparé monté avant requireOwner. Voir ci-dessous (inboundRouter).
-  res.status(501).json({ erreur: 'Use /friday-inbound endpoint.' });
-});
-
 module.exports = router;
 
-// ───────── Sous-routeur INBOUND (pas d'auth JWT, HMAC seulement) ─────────
-// À monter dans index.js sur un path différent OU avant le requireOwner.
-const inboundRouter = express.Router();
+// ═══════════════════════════════════════════════════════════════════════
+// Sous-routeur PULL-MODE (HMAC seulement, pas de JWT) — pour FRIDAY agent
+// ═══════════════════════════════════════════════════════════════════════
+const pullRouter = express.Router();
 
-inboundRouter.post('/', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+// GET /api/friday/poll?req=<uuid>
+// HMAC : signature sur "<timestamp>.<uuid>"
+// Headers : X-MC-Signature, X-MC-Timestamp, X-MC-Version
+//
+// Retourne :
+//   200 { pendingId, version, user, conversation, message, history, context } — message à traiter
+//   204 No Content — timeout 25s, FRIDAY re-poll
+//   400 — paramètres manquants
+//   401 — signature invalide / timestamp expiré
+//   503 — bridge non configuré (HMAC secret manquant)
+pullRouter.get('/poll', async (req, res) => {
+  if (!FRIDAY_HMAC_SECRET) return res.status(503).json({ erreur: 'Bridge non configuré.' });
+
+  const sig = (req.headers['x-mc-signature'] || '').toString();
+  const tsStr = (req.headers['x-mc-timestamp'] || '').toString();
+  const ts = Number.parseInt(tsStr, 10);
+  const reqId = (req.query.req || '').toString();
+
+  if (!reqId) return res.status(400).json({ erreur: 'paramètre req requis.' });
+  if (!Number.isFinite(ts)) return res.status(400).json({ erreur: 'X-MC-Timestamp manquant.' });
+  if (!checkTimestamp(ts)) return res.status(401).json({ erreur: 'timestamp expiré.' });
+  if (!verifySignature(ts, reqId, sig)) return res.status(401).json({ erreur: 'signature invalide.' });
+
+  // Marque FRIDAY active
+  lastPollAt = Date.now();
+
+  // Tente claim immédiat
+  const immediate = await claimNextPending();
+  if (immediate) {
+    return res.json(buildPollPayload(immediate));
+  }
+
+  // Long-poll
+  let resolved = false;
+  let timer;
+  const onPending = async (pendingId) => {
+    if (resolved) return;
+    const claimed = await tryClaimById(pendingId);
+    if (claimed && !resolved) {
+      resolved = true;
+      clearTimeout(timer);
+      fridayEvents.off('pending', onPending);
+      try { res.json(buildPollPayload(claimed)); } catch {}
+    }
+  };
+
+  timer = setTimeout(() => {
+    if (resolved) return;
+    resolved = true;
+    fridayEvents.off('pending', onPending);
+    try { res.status(204).end(); } catch {}
+  }, POLL_TIMEOUT_MS);
+
+  fridayEvents.on('pending', onPending);
+
+  req.on('close', () => {
+    if (resolved) return;
+    resolved = true;
+    clearTimeout(timer);
+    fridayEvents.off('pending', onPending);
+  });
+});
+
+// POST /api/friday/webhook
+// HMAC : signature sur "<timestamp>.<raw_body>"
+// Body :
+//   Mode 1 (réponse à un poll) : { pendingId, content, metadata? }
+//   Mode 2 (push proactif)     : { userId, conversationId?, conversationTitle?, content, metadata? }
+//
+// On distingue par la présence de `pendingId`.
+pullRouter.post('/webhook', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
   try {
     if (!FRIDAY_HMAC_SECRET) return res.status(503).json({ erreur: 'Bridge non configuré.' });
 
-    const sig = req.headers['x-mc-signature'] || '';
-    const tsStr = req.headers['x-mc-timestamp'] || '';
+    const sig = (req.headers['x-mc-signature'] || '').toString();
+    const tsStr = (req.headers['x-mc-timestamp'] || '').toString();
     const ts = Number.parseInt(tsStr, 10);
-    if (!Number.isFinite(ts)) return res.status(400).json({ erreur: 'timestamp manquant.' });
-    if (Math.abs(Date.now() - ts) > REPLAY_WINDOW_MS) {
-      return res.status(401).json({ erreur: 'timestamp expiré.' });
-    }
+    if (!Number.isFinite(ts)) return res.status(400).json({ erreur: 'X-MC-Timestamp manquant.' });
+    if (!checkTimestamp(ts)) return res.status(401).json({ erreur: 'timestamp expiré.' });
 
     const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : '';
-    if (!verifyInboundSignature(ts, rawBody, sig)) {
+    if (!verifySignature(ts, rawBody, sig)) {
       return res.status(401).json({ erreur: 'signature invalide.' });
     }
 
     let payload;
-    try {
-      payload = JSON.parse(rawBody);
-    } catch {
-      return res.status(400).json({ erreur: 'JSON invalide.' });
-    }
+    try { payload = JSON.parse(rawBody); }
+    catch { return res.status(400).json({ erreur: 'JSON invalide.' }); }
 
-    const userId = Number(payload.userId);
     const content = (payload.content || '').toString().trim();
-    if (!Number.isFinite(userId) || !content) {
-      return res.status(400).json({ erreur: 'userId + content requis.' });
+    if (!content) return res.status(400).json({ erreur: 'content requis.' });
+
+    // ─── Mode 1 : réponse à un poll ───
+    if (payload.pendingId != null) {
+      const pendingId = Number(payload.pendingId);
+      if (!Number.isFinite(pendingId)) return res.status(400).json({ erreur: 'pendingId invalide.' });
+
+      const pending = await prisma.fridayPendingMessage.findUnique({ where: { id: pendingId } });
+      if (!pending) return res.status(404).json({ erreur: 'pending introuvable.' });
+      if (pending.respondedAt) return res.status(409).json({ erreur: 'pending déjà répondu.' });
+
+      // Sauve la réponse FRIDAY
+      const msg = await prisma.fridayMessage.create({
+        data: {
+          conversationId: pending.conversationId,
+          role: 'assistant',
+          content,
+          metadata: payload.metadata || null,
+        },
+      });
+
+      await prisma.fridayPendingMessage.update({
+        where: { id: pendingId },
+        data: { respondedAt: new Date() },
+      });
+
+      await prisma.fridayConversation.update({
+        where: { id: pending.conversationId },
+        data: { lastMessageAt: msg.createdAt },
+      });
+
+      // Réveille le SSE en attente (s'il y en a un)
+      fridayEvents.emit(`response:${pendingId}`, {
+        messageId: msg.id,
+        content,
+        metadata: payload.metadata || null,
+      });
+
+      return res.json({ ok: true, messageId: msg.id, conversationId: pending.conversationId });
     }
 
-    // Find or create conversation
+    // ─── Mode 2 : push proactif ───
+    const userId = Number(payload.userId);
+    if (!Number.isFinite(userId)) {
+      return res.status(400).json({ erreur: 'userId requis (mode proactif) ou pendingId (mode réponse).' });
+    }
+
     let convo;
     if (payload.conversationId) {
       convo = await prisma.fridayConversation.findFirst({
@@ -551,15 +625,13 @@ inboundRouter.post('/', express.raw({ type: 'application/json', limit: '1mb' }),
       data: { lastMessageAt: msg.createdAt },
     });
 
-    return res.json({
-      ok: true,
-      conversationId: convo.id,
-      messageId: msg.id,
-    });
+    return res.json({ ok: true, conversationId: convo.id, messageId: msg.id, mode: 'proactive' });
   } catch (err) {
-    console.error('POST /friday-inbound', err);
+    console.error('POST /api/friday/webhook', err);
     return res.status(500).json({ erreur: 'Erreur serveur.' });
   }
 });
 
-module.exports.inboundRouter = inboundRouter;
+module.exports.pullRouter = pullRouter;
+// Conserve l'export historique inboundRouter (alias pullRouter pour rétrocompat).
+module.exports.inboundRouter = pullRouter;

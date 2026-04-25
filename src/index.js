@@ -17,7 +17,7 @@ const hubitatRoutes = require('./routes/hubitat');
 const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
 const fridayRoutes = require('./routes/friday');
-const fridayInboundRouter = require('./routes/friday').inboundRouter;
+const fridayPullRouter = require('./routes/friday').pullRouter;
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -69,10 +69,11 @@ app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
-// FRIDAY inbound (HMAC seulement, raw body) — DOIT être monté AVANT le router /friday qui parse JSON.
-// Convention canonique : /api/friday/webhook. Alias legacy /friday-inbound conservé.
-app.use('/api/friday/webhook', fridayInboundRouter);
-app.use('/friday-inbound', fridayInboundRouter);
+// FRIDAY pull-mode (HMAC seulement, pas de JWT) :
+//   - GET  /api/friday/poll    : long-poll côté FRIDAY pour récupérer les messages user
+//   - POST /api/friday/webhook : FRIDAY pousse sa réponse (avec pendingId) ou un message proactif
+// DOIT être monté AVANT le router /friday qui parse le body JSON et exige JWT.
+app.use('/api/friday', fridayPullRouter);
 app.use('/friday', fridayRoutes);
 
 app.use((req, res) => {
