@@ -70,6 +70,8 @@ app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
 // FRIDAY inbound (HMAC seulement, raw body) — DOIT être monté AVANT le router /friday qui parse JSON.
+// Convention canonique : /api/friday/webhook. Alias legacy /friday-inbound conservé.
+app.use('/api/friday/webhook', fridayInboundRouter);
 app.use('/friday-inbound', fridayInboundRouter);
 app.use('/friday', fridayRoutes);
 

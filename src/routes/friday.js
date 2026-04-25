@@ -26,7 +26,11 @@ const prisma = new PrismaClient();
 const router = express.Router();
 
 // ───────── Configuration ─────────
-const FRIDAY_WEBHOOK_URL = process.env.FRIDAY_WEBHOOK_URL || '';
+// FRIDAY_INTERNAL_URL : URL HTTPS où l'agent FRIDAY/Hermes écoute. Mission Control
+// (Render Oregon) doit pouvoir l'atteindre — donc cette URL doit être joignable
+// depuis Internet (tunnel sortant Cloudflare/ngrok, ou FRIDAY déployée en cloud).
+// Fallback legacy `FRIDAY_WEBHOOK_URL` accepté le temps de la migration.
+const FRIDAY_INTERNAL_URL = process.env.FRIDAY_INTERNAL_URL || process.env.FRIDAY_WEBHOOK_URL || '';
 const FRIDAY_HMAC_SECRET = process.env.FRIDAY_HMAC_SECRET || '';
 const FRIDAY_TIMEOUT_MS = Number(process.env.FRIDAY_TIMEOUT_MS) || 90000;
 const FRIDAY_MAX_HISTORY = Number(process.env.FRIDAY_MAX_HISTORY) || 30;
@@ -128,7 +132,7 @@ router.get('/conversations', async (req, res) => {
     res.json({
       conversations: list.map(shapeConversationSummary),
       bridge: {
-        configured: !!FRIDAY_WEBHOOK_URL && !!FRIDAY_HMAC_SECRET,
+        configured: !!FRIDAY_INTERNAL_URL && !!FRIDAY_HMAC_SECRET,
       },
     });
   } catch (err) {
@@ -285,9 +289,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
     if (titleUpdated) sse({ type: 'title', title: titleUpdated });
 
     // 5. Si bridge non configuré → message d'erreur friendly
-    if (!FRIDAY_WEBHOOK_URL || !FRIDAY_HMAC_SECRET) {
+    if (!FRIDAY_INTERNAL_URL || !FRIDAY_HMAC_SECRET) {
       const fallbackText =
-        "FRIDAY n'est pas encore branchée. Configure FRIDAY_WEBHOOK_URL + FRIDAY_HMAC_SECRET dans Render pour activer le pont. " +
+        "FRIDAY n'est pas encore branchée. Configure FRIDAY_INTERNAL_URL + FRIDAY_HMAC_SECRET dans Render pour activer le pont. " +
         '(Voir le guide de branchement.)';
       const saved = await prisma.fridayMessage.create({
         data: {
@@ -341,7 +345,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const timer = setTimeout(() => controller.abort(), FRIDAY_TIMEOUT_MS);
 
     try {
-      const upstream = await fetch(FRIDAY_WEBHOOK_URL, {
+      const upstream = await fetch(FRIDAY_INTERNAL_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
