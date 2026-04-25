@@ -16,6 +16,8 @@ const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
 const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
+const fridayRoutes = require('./routes/friday');
+const fridayInboundRouter = require('./routes/friday').inboundRouter;
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -67,6 +69,9 @@ app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
+// FRIDAY inbound (HMAC seulement, raw body) — DOIT être monté AVANT le router /friday qui parse JSON.
+app.use('/friday-inbound', fridayInboundRouter);
+app.use('/friday', fridayRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });

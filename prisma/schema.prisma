@@ -75,6 +75,7 @@ model User {
   pushSubscriptions          PushSubscription[]
   messagerieParticipations   ConversationParticipant[]
   messagerieMessages         Message[]
+  fridayConversations        FridayConversation[]
 }
 
 model App {
@@ -314,6 +315,38 @@ model PushSubscription {
   lastSeenAt  DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ============ FRIDAY (Hermes home agent bridge) =============
+// Pont chat entre Mission Control et l'agent Hermes domestique de Martin.
+// Phase 1 : Martin only (admin). Phase 2 : kids restreints via FRIDAY policy.
+
+model FridayConversation {
+  id            Int             @id @default(autoincrement())
+  userId        Int
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String          @default("Nouvelle conversation")
+  pinned        Boolean         @default(false)
+  archivedAt    DateTime?
+  lastMessageAt DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  messages      FridayMessage[]
+
+  @@index([userId, archivedAt, lastMessageAt])
+}
+
+model FridayMessage {
+  id             Int                @id @default(autoincrement())
+  conversationId Int
+  conversation   FridayConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String             // "user" | "assistant" | "system"
+  content        String             @db.Text
+  metadata       Json?              // raw FRIDAY response, tool calls, sources, etc.
+  errorMessage   String?            @db.Text
+  createdAt      DateTime           @default(now())
+
+  @@index([conversationId, createdAt])
 }
 
 // ============ MESSAGERIE FAMILIALE =============

@@ -67,11 +67,11 @@ const APPS = [
   },
   {
     slug: 'assistant',
-    name: 'Assistant IA',
-    description: 'Assistant personnel propulsé par l\'IA.',
+    name: 'FRIDAY',
+    description: 'Ton assistant IA personnel — pont chat direct vers FRIDAY à la maison.',
     icon: 'robot',
-    color: '#6366F1',
-    isMockup: true,
+    color: '#29D0FE',
+    isMockup: false,
     realm: 'FAMILY',
   },
   {
