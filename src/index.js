@@ -55,8 +55,8 @@ app.set('trust proxy', 1);
 //   - POST /api/friday/webhook : FRIDAY pousse sa réponse (avec pendingId) ou un message proactif
 app.use('/api/friday', fridayPullRouter);
 
-// 4 MB : laisse de la marge pour une image message webp ~1.5 MB + overhead base64/JSON.
-app.use(express.json({ limit: '4mb' }));
+// 8 MB : image webp ~1.5 MB + audio MP3 jusqu'a ~5 MB (base64 + overhead JSON).
+app.use(express.json({ limit: '8mb' }));
 
 app.get('/', (req, res) => {
   res.json({ service: 'mission-control-api', status: 'ok', version: '0.1.0' });
