@@ -67,9 +67,9 @@ const APPS = [
   },
   {
     slug: 'assistant',
-    name: 'FRIDAY',
-    description: 'Ton assistant IA personnel — pont chat direct vers FRIDAY à la maison.',
-    icon: 'robot',
+    name: 'HEIMDALL',
+    description: 'Holistic Environmental Intelligence & Monitoring, Decision And Link Layer. Voit tout, connecte tout.',
+    icon: 'eye',
     color: '#29D0FE',
     isMockup: false,
     realm: 'FAMILY',
