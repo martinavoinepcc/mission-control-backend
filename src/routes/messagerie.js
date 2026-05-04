@@ -21,6 +21,10 @@ const sendPushToUser = pushModule && pushModule.sendPushToUser;
 // Limite taille image message (base64 data URL). 2 MB laisse de la marge pour les photos iPhone
 // qui sortent parfois ~1-1.5 MB même après compression webp qualité 0.5.
 const MAX_IMAGE_BASE64_BYTES = 2 * 1024 * 1024;
+// Limite taille audio (MP3 et autres formats audio). 6 MB en base64 ≈ 4.5 MB MP3 ≈ ~5min de speech.
+const MAX_AUDIO_BASE64_BYTES = 6 * 1024 * 1024;
+// Types audio acceptes (whitelist stricte).
+const ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/wav', 'audio/webm', 'audio/ogg'];
 
 // Base URL pour les avatars dans les push icon (doit être absolue).
 const PUBLIC_API_URL =
@@ -289,6 +293,9 @@ router.get('/:id/messages', auth, async (req, res) => {
       imageData: m.imageData || null,
       imageWidth: m.imageWidth || null,
       imageHeight: m.imageHeight || null,
+      audioData: m.audioData || null,
+      audioType: m.audioType || null,
+      audioName: m.audioName || null,
       createdAt: m.createdAt,
       editedAt: m.editedAt,
     }));
@@ -310,9 +317,10 @@ router.post('/:id/messages', auth, async (req, res) => {
     const raw = (req.body && req.body.body) || '';
     const body = String(raw).trim();
     const image = req.body && req.body.image; // { data, width, height } or undefined
+    const audio = req.body && req.body.audio; // { data, type, name } or undefined
 
-    if (!body && !image) {
-      return res.status(400).json({ erreur: 'Message vide (texte ou image requis).' });
+    if (!body && !image && !audio) {
+      return res.status(400).json({ erreur: 'Message vide (texte, image ou audio requis).' });
     }
     if (body.length > 4000) {
       return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
@@ -335,6 +343,35 @@ router.post('/:id/messages', auth, async (req, res) => {
       imageHeight = Number.isFinite(image.height) ? Math.max(1, Math.floor(image.height)) : null;
     }
 
+    let audioData = null;
+    let audioType = null;
+    let audioName = null;
+    if (audio && typeof audio.data === 'string') {
+      if (!audio.data.startsWith('data:audio/')) {
+        return res.status(400).json({ erreur: 'Audio invalide (data URL audio attendue).' });
+      }
+      if (audio.data.length > MAX_AUDIO_BASE64_BYTES) {
+        return res.status(413).json({
+          erreur: `Audio trop volumineux (${Math.round(audio.data.length / 1024)} KB). Max ~${Math.round(MAX_AUDIO_BASE64_BYTES / 1024)} KB (~5 min MP3).`,
+        });
+      }
+      const declaredType = (typeof audio.type === 'string' && audio.type) ? audio.type.toLowerCase() : null;
+      // Extrait le mime depuis le data URL si type non fourni
+      const mimeMatch = audio.data.match(/^data:(audio\/[^;]+)/);
+      const mime = declaredType || (mimeMatch ? mimeMatch[1] : null);
+      if (!mime || !ALLOWED_AUDIO_TYPES.some(t => mime.startsWith(t.split('/')[0] + '/') && (t === mime || mime === 'audio/mpeg' || mime === 'audio/mp3'))) {
+        // Plus permissif : accepte tout audio/* sur la whitelist large
+        if (!mime || !mime.startsWith('audio/')) {
+          return res.status(400).json({ erreur: 'Type audio non supporte.' });
+        }
+      }
+      audioData = audio.data;
+      audioType = mime;
+      const rawName = (typeof audio.name === 'string' && audio.name) ? audio.name : 'audio.mp3';
+      // Sanitize filename : alphanum/dot/dash/underscore, max 80
+      audioName = rawName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'audio.mp3';
+    }
+
     const now = new Date();
     const [msg] = await prisma.$transaction([
       prisma.message.create({
@@ -345,6 +382,9 @@ router.post('/:id/messages', auth, async (req, res) => {
           imageData,
           imageWidth,
           imageHeight,
+          audioData,
+          audioType,
+          audioName,
           createdAt: now,
         },
         include: { author: { select: { id: true, firstName: true, avatarData: true } } },
@@ -375,7 +415,9 @@ router.post('/:id/messages', auth, async (req, res) => {
             ? `${convo.title} · ${authorName}`
             : authorName;
           let preview;
-          if (body && imageData) preview = `📷 ${body.length > 80 ? body.slice(0, 77) + '…' : body}`;
+          if (body && audioData) preview = `🎵 ${body.length > 80 ? body.slice(0, 77) + '…' : body}`;
+          else if (audioData) preview = '🎵 a envoyé un audio';
+          else if (body && imageData) preview = `📷 ${body.length > 80 ? body.slice(0, 77) + '…' : body}`;
           else if (imageData) preview = '📷 a envoyé une photo';
           else preview = body.length > 100 ? body.slice(0, 97) + '…' : body;
 
@@ -411,6 +453,9 @@ router.post('/:id/messages', auth, async (req, res) => {
       imageData: msg.imageData || null,
       imageWidth: msg.imageWidth || null,
       imageHeight: msg.imageHeight || null,
+      audioData: msg.audioData || null,
+      audioType: msg.audioType || null,
+      audioName: msg.audioName || null,
       createdAt: msg.createdAt,
     });
   } catch (err) {
