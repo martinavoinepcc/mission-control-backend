@@ -75,6 +75,7 @@ model User {
   pushSubscriptions          PushSubscription[]
   messagerieParticipations   ConversationParticipant[]
   messagerieMessages         Message[]
+  messageReactions           MessageReaction[]
   fridayConversations        FridayConversation[]
 }
 
@@ -407,8 +408,28 @@ model Message {
   audioData      String?      @db.Text    // data:audio/mpeg;base64,... (audio attachments)
   audioType      String?                  // mime: audio/mpeg, audio/mp3, etc.
   audioName      String?                  // filename original (pour download)
+  // Reply-to (pour repondre a un message specifique)
+  replyToId      Int?
+  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]    @relation("MessageReply")
+  // Reactions (emoji)
+  reactions      MessageReaction[]
   createdAt      DateTime     @default(now())
   editedAt       DateTime?
 
   @@index([conversationId, createdAt])
+}
+
+// Reaction emoji sur un message. Unique par (message, user, emoji) pour eviter double-react.
+model MessageReaction {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
