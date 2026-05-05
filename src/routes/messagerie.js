@@ -25,6 +25,8 @@ const MAX_IMAGE_BASE64_BYTES = 2 * 1024 * 1024;
 const MAX_AUDIO_BASE64_BYTES = 6 * 1024 * 1024;
 // Types audio acceptes (whitelist stricte).
 const ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/wav', 'audio/webm', 'audio/ogg'];
+// Emojis autorisees pour reactions (whitelist pour eviter les injections / abus).
+const ALLOWED_REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
 
 // Base URL pour les avatars dans les push icon (doit être absolue).
 const PUBLIC_API_URL =
@@ -282,8 +284,33 @@ router.get('/:id/messages', auth, async (req, res) => {
       where,
       orderBy: { id: 'desc' },
       take: limit,
-      include: { author: { select: { id: true, firstName: true } } },
+      include: {
+        author: { select: { id: true, firstName: true } },
+        replyTo: {
+          select: {
+            id: true, body: true, authorId: true, audioName: true,
+            imageData: true, audioData: true,
+            author: { select: { id: true, firstName: true } },
+          },
+        },
+        reactions: {
+          select: { emoji: true, userId: true },
+        },
+      },
     });
+
+    // Agrege les reactions par emoji pour chaque message
+    function aggregateReactions(rxs, currentUserId) {
+      const byEmoji = new Map();
+      for (const r of rxs || []) {
+        if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, { emoji: r.emoji, count: 0, mine: false, userIds: [] });
+        const e = byEmoji.get(r.emoji);
+        e.count++;
+        e.userIds.push(r.userId);
+        if (r.userId === currentUserId) e.mine = true;
+      }
+      return Array.from(byEmoji.values());
+    }
 
     const messages = recent.reverse().map((m) => ({
       id: m.id,
@@ -296,6 +323,16 @@ router.get('/:id/messages', auth, async (req, res) => {
       audioData: m.audioData || null,
       audioType: m.audioType || null,
       audioName: m.audioName || null,
+      replyTo: m.replyTo ? {
+        id: m.replyTo.id,
+        body: m.replyTo.body,
+        authorId: m.replyTo.authorId,
+        authorFirstName: m.replyTo.author ? m.replyTo.author.firstName : null,
+        hasImage: !!m.replyTo.imageData,
+        hasAudio: !!m.replyTo.audioData,
+        audioName: m.replyTo.audioName || null,
+      } : null,
+      reactions: aggregateReactions(m.reactions, req.user.id),
       createdAt: m.createdAt,
       editedAt: m.editedAt,
     }));
@@ -318,9 +355,26 @@ router.post('/:id/messages', auth, async (req, res) => {
     const body = String(raw).trim();
     const image = req.body && req.body.image; // { data, width, height } or undefined
     const audio = req.body && req.body.audio; // { data, type, name } or undefined
+    const replyToIdRaw = req.body && req.body.replyToId;
 
     if (!body && !image && !audio) {
       return res.status(400).json({ erreur: 'Message vide (texte, image ou audio requis).' });
+    }
+
+    // Valide replyToId si fourni (le message cite doit appartenir a la meme convo)
+    let replyToId = null;
+    if (replyToIdRaw !== undefined && replyToIdRaw !== null) {
+      const candidate = Number.parseInt(replyToIdRaw, 10);
+      if (Number.isFinite(candidate) && candidate > 0) {
+        const target = await prisma.message.findUnique({
+          where: { id: candidate },
+          select: { conversationId: true },
+        });
+        if (target && target.conversationId === id) {
+          replyToId = candidate;
+        }
+        // Sinon on ignore silencieusement (pas d'erreur — le message s'envoie quand meme)
+      }
     }
     if (body.length > 4000) {
       return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
@@ -385,9 +439,19 @@ router.post('/:id/messages', auth, async (req, res) => {
           audioData,
           audioType,
           audioName,
+          replyToId,
           createdAt: now,
         },
-        include: { author: { select: { id: true, firstName: true, avatarData: true } } },
+        include: {
+          author: { select: { id: true, firstName: true, avatarData: true } },
+          replyTo: {
+            select: {
+              id: true, body: true, authorId: true, audioName: true,
+              imageData: true, audioData: true,
+              author: { select: { id: true, firstName: true } },
+            },
+          },
+        },
       }),
       prisma.conversation.update({
         where: { id },
@@ -456,6 +520,16 @@ router.post('/:id/messages', auth, async (req, res) => {
       audioData: msg.audioData || null,
       audioType: msg.audioType || null,
       audioName: msg.audioName || null,
+      replyTo: msg.replyTo ? {
+        id: msg.replyTo.id,
+        body: msg.replyTo.body,
+        authorId: msg.replyTo.authorId,
+        authorFirstName: msg.replyTo.author ? msg.replyTo.author.firstName : null,
+        hasImage: !!msg.replyTo.imageData,
+        hasAudio: !!msg.replyTo.audioData,
+        audioName: msg.replyTo.audioName || null,
+      } : null,
+      reactions: [],
       createdAt: msg.createdAt,
     });
   } catch (err) {
@@ -498,6 +572,60 @@ router.delete('/:id', auth, async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /conversations/:id error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// POST /conversations/:id/messages/:msgId/reactions — toggle reaction emoji
+router.post('/:id/messages/:msgId/reactions', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const emoji = req.body && typeof req.body.emoji === 'string' ? req.body.emoji.trim() : '';
+    if (!ALLOWED_REACTION_EMOJIS.includes(emoji)) {
+      return res.status(400).json({ erreur: 'Emoji non autorise.' });
+    }
+
+    // Verifie que le message existe dans cette convo
+    const msg = await prisma.message.findUnique({
+      where: { id: msgId },
+      select: { conversationId: true },
+    });
+    if (!msg || msg.conversationId !== id) {
+      return res.status(404).json({ erreur: 'Message introuvable.' });
+    }
+
+    // Toggle : si la reaction existe pour ce user/emoji on la supprime, sinon on la cree
+    const existing = await prisma.messageReaction.findUnique({
+      where: { messageId_userId_emoji: { messageId: msgId, userId: req.user.id, emoji } },
+    });
+    if (existing) {
+      await prisma.messageReaction.delete({ where: { id: existing.id } });
+    } else {
+      await prisma.messageReaction.create({
+        data: { messageId: msgId, userId: req.user.id, emoji },
+      });
+    }
+
+    // Renvoie l'etat agrege a jour pour ce message
+    const all = await prisma.messageReaction.findMany({
+      where: { messageId: msgId },
+      select: { emoji: true, userId: true },
+    });
+    const byEmoji = new Map();
+    for (const r of all) {
+      if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, { emoji: r.emoji, count: 0, mine: false, userIds: [] });
+      const e = byEmoji.get(r.emoji);
+      e.count++;
+      e.userIds.push(r.userId);
+      if (r.userId === req.user.id) e.mine = true;
+    }
+    return res.json({ messageId: msgId, reactions: Array.from(byEmoji.values()) });
+  } catch (err) {
+    console.error('POST /reactions error:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
   }
 });
