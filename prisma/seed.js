@@ -67,8 +67,8 @@ const APPS = [
   },
   {
     slug: 'assistant',
-    name: 'HEIMDALL',
-    description: 'Holistic Environmental Intelligence & Monitoring, Decision And Link Layer. Voit tout, connecte tout.',
+    name: 'BIFROST',
+    description: 'Pont vers HEIMDALL — cockpit Aion UI, agents FRIDAY, drops modules.',
     icon: 'eye',
     color: '#29D0FE',
     isMockup: false,
