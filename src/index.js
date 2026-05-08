@@ -18,6 +18,7 @@ const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
 const fridayRoutes = require('./routes/friday');
 const fridayPullRouter = require('./routes/friday').pullRouter;
+const heimdallRoutes = require('./routes/heimdall');
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -77,6 +78,7 @@ app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
 app.use('/friday', fridayRoutes);
+app.use('/heimdall', heimdallRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ erreur: 'Route introuvable.' });
