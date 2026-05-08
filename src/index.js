@@ -19,6 +19,7 @@ const messagerieRoutes = require('./routes/messagerie');
 const fridayRoutes = require('./routes/friday');
 const fridayPullRouter = require('./routes/friday').pullRouter;
 const heimdallRoutes = require('./routes/heimdall');
+const heimdallInboundRouter = require('./routes/heimdall').inboundRouter;
 const keepAlive = require('./keep-alive');
 
 const app = express();
@@ -55,6 +56,11 @@ app.set('trust proxy', 1);
 //   - GET  /api/friday/poll    : long-poll côté FRIDAY pour récupérer les messages user
 //   - POST /api/friday/webhook : FRIDAY pousse sa réponse (avec pendingId) ou un message proactif
 app.use('/api/friday', fridayPullRouter);
+
+// HEIMDALL inbound : meme contrainte que FRIDAY, doit etre AVANT express.json()
+// pour preserver le raw body (HMAC verification).
+//   - POST /api/heimdall/drops/inbound : FRIDAY pousse un drop signe HMAC
+app.use('/api/heimdall', heimdallInboundRouter);
 
 // 8 MB : image webp ~1.5 MB + audio MP3 jusqu'a ~5 MB (base64 + overhead JSON).
 app.use(express.json({ limit: '8mb' }));
