@@ -77,6 +77,7 @@ model User {
   messagerieMessages         Message[]
   messageReactions           MessageReaction[]
   fridayConversations        FridayConversation[]
+  dropAccesses               DropAccess[]
 }
 
 model App {
@@ -432,4 +433,40 @@ model MessageReaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+}
+
+// ===== HEIMDALL DROPS — modules pousses par FRIDAY (ou crees manuellement) =====
+// Workflow : FRIDAY (ou admin) cree un Drop avec slug + titre + htmlContent.
+// Admin grant access via DropAccess pour les users qui doivent voir le module.
+// Le user peut ouvrir /drops/:slug si il a un DropAccess valide.
+
+model Drop {
+  id            Int          @id @default(autoincrement())
+  slug          String       @unique  // ex: 'spelling-quiz-v1'
+  title         String
+  description   String?      @db.Text
+  htmlContent   String?      @db.Text  // mockup HTML standalone
+  iconEmoji     String?      @default("📦")
+  realm         String       @default("FAMILY")  // FAMILY | EDUCATIF | WORK
+  status        String       @default("PENDING")  // PENDING | APPROVED | DISABLED
+  source        String?      // 'friday' | 'manual' | etc.
+  createdAt     DateTime     @default(now())
+  approvedAt    DateTime?
+  updatedAt     DateTime     @updatedAt
+  accesses      DropAccess[]
+
+  @@index([status, createdAt])
+}
+
+// Access par user pour un drop. Admin gere ces rows pour granter/revoker.
+model DropAccess {
+  id        Int      @id @default(autoincrement())
+  dropId    Int
+  drop      Drop     @relation(fields: [dropId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantedAt DateTime @default(now())
+
+  @@unique([dropId, userId])
+  @@index([userId])
 }
