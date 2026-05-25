@@ -22,6 +22,98 @@ const inboundRouter = express.Router();
 const FRIDAY_HMAC_SECRET = process.env.FRIDAY_HMAC_SECRET || '';
 const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
+// ===== Bus drop <-> host (SDK injecte cote serveur dans tout drop servi) =====
+// Le SDK expose window.MissionControl.{awardXp, markComplete, setProgress, saveState,
+// loadState, openCompanion, playSound, toast, exit} dans l'iframe du drop, et ecoute
+// les reponses du host (profile sur ready, state sur loadState, resume apres companion).
+// Spec complete : files/GUIDE-FRIDAY-drops-API.md
+const MC_DROP_SDK_JS = `
+(function () {
+  if (window.MissionControl && window.MissionControl.__mcReady) return;
+  var pending = {};
+  var nextReqId = 1;
+  function send(type, payload) {
+    try {
+      var msg = Object.assign({ mc: type }, payload || {});
+      parent.postMessage(msg, '*');
+    } catch (e) {}
+  }
+  var MC = {
+    __mcReady: true,
+    profile: null,
+    slug: null,
+    ready: function () { send('ready'); },
+    awardXp: function (amount, reason) {
+      send('awardXp', { amount: (amount | 0), reason: reason || null });
+    },
+    setProgress: function (percent) {
+      var p = Math.max(0, Math.min(100, (percent | 0)));
+      send('setProgress', { percent: p });
+    },
+    markComplete: function (rating) {
+      send('markComplete', { rating: rating || null });
+    },
+    saveState: function (state) { send('saveState', { state: state }); },
+    loadState: function () {
+      return new Promise(function (resolve) {
+        var id = nextReqId++;
+        pending[id] = resolve;
+        send('loadState', { requestId: id });
+        setTimeout(function () {
+          if (pending[id]) { pending[id](null); delete pending[id]; }
+        }, 3000);
+      });
+    },
+    openCompanion: function (message) {
+      send('openCompanion', { message: message || null });
+    },
+    playSound: function (name) { send('playSound', { name: String(name || 'click') }); },
+    toast: function (text, kind) { send('toast', { text: String(text || ''), kind: kind || 'info' }); },
+    exit: function () { send('exit'); },
+    onProfile: null,
+    onResume: null,
+  };
+  window.MissionControl = MC;
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (!d || typeof d !== 'object' || !d.mc) return;
+    if (d.mc === 'profile') {
+      MC.profile = d.kid || null;
+      MC.slug = d.slug || null;
+      if (typeof MC.onProfile === 'function') {
+        try { MC.onProfile(MC.profile); } catch (_) {}
+      }
+    } else if (d.mc === 'state') {
+      if (d.requestId && pending[d.requestId]) {
+        pending[d.requestId](typeof d.state === 'undefined' ? null : d.state);
+        delete pending[d.requestId];
+      }
+    } else if (d.mc === 'resume') {
+      if (typeof MC.onResume === 'function') {
+        try { MC.onResume(); } catch (_) {}
+      }
+    }
+  });
+  // Auto-ready apres 200ms si le drop n'a pas appele MissionControl.ready() lui-meme
+  var autoReadySent = false;
+  var origReady = MC.ready;
+  MC.ready = function () { autoReadySent = true; origReady(); };
+  setTimeout(function () { if (!autoReadySent) MC.ready(); }, 200);
+})();
+`;
+
+function injectDropSdk(html) {
+  var tag = '<script data-mc-sdk="1">' + MC_DROP_SDK_JS + '</script>';
+  if (typeof html !== 'string' || !html) return tag;
+  // Insere avant </body> si possible, sinon avant </html>, sinon ajoute a la fin.
+  var lower = html.toLowerCase();
+  var idx = lower.lastIndexOf('</body>');
+  if (idx >= 0) return html.slice(0, idx) + tag + html.slice(idx);
+  idx = lower.lastIndexOf('</html>');
+  if (idx >= 0) return html.slice(0, idx) + tag + html.slice(idx);
+  return html + tag;
+}
+
 function computeSignature(timestampMs, payloadString) {
   if (!FRIDAY_HMAC_SECRET) return '';
   const h = crypto.createHmac('sha256', FRIDAY_HMAC_SECRET);
@@ -236,7 +328,9 @@ router.get('/drops/:slug/content', authQueryOrHeader, async (req, res) => {
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    return res.send(drop.htmlContent);
+    // Injecte le SDK MissionControl avant </body> pour que tout drop herite du bus
+    // automatiquement (cf. constant MC_DROP_SDK_JS + injectDropSdk en haut du fichier).
+    return res.send(injectDropSdk(drop.htmlContent));
   } catch (err) {
     console.error('drop content error:', err);
     return res.status(500).send('Erreur.');
