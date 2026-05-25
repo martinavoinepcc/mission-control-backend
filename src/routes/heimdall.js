@@ -105,13 +105,27 @@ const MC_DROP_SDK_JS = `
 function injectDropSdk(html) {
   var tag = '<script data-mc-sdk="1">' + MC_DROP_SDK_JS + '</script>';
   if (typeof html !== 'string' || !html) return tag;
-  // Insere avant </body> si possible, sinon avant </html>, sinon ajoute a la fin.
+  // CRITIQUE : le SDK doit s'executer AVANT le script du drop, sinon le drop tente
+  // d'appeler MissionControl.* avant qu'il existe et plante silencieusement.
+  // Strategie : injecter le plus tot possible.
+  // 1. Apres <head> opening (avant tout autre script du <head>).
+  // 2. Sinon apres <body> opening (avant les scripts du body).
+  // 3. Sinon avant </head> (vieux pattern).
+  // 4. Fallback : tout debut du HTML.
+  var headOpen = /<head\b[^>]*>/i.exec(html);
+  if (headOpen) {
+    var pos = headOpen.index + headOpen[0].length;
+    return html.slice(0, pos) + tag + html.slice(pos);
+  }
+  var bodyOpen = /<body\b[^>]*>/i.exec(html);
+  if (bodyOpen) {
+    var pos2 = bodyOpen.index + bodyOpen[0].length;
+    return html.slice(0, pos2) + tag + html.slice(pos2);
+  }
   var lower = html.toLowerCase();
-  var idx = lower.lastIndexOf('</body>');
+  var idx = lower.indexOf('</head>');
   if (idx >= 0) return html.slice(0, idx) + tag + html.slice(idx);
-  idx = lower.lastIndexOf('</html>');
-  if (idx >= 0) return html.slice(0, idx) + tag + html.slice(idx);
-  return html + tag;
+  return tag + html;
 }
 
 function computeSignature(timestampMs, payloadString) {
