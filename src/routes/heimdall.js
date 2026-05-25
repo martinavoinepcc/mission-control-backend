@@ -70,6 +70,31 @@ const MC_DROP_SDK_JS = `
     playSound: function (name) { send('playSound', { name: String(name || 'click') }); },
     toast: function (text, kind) { send('toast', { text: String(text || ''), kind: kind || 'info' }); },
     exit: function () { send('exit'); },
+    // ----- Scores (DB) -----
+    submitScore: function (payload) {
+      return new Promise(function (resolve) {
+        var id = nextReqId++;
+        pending[id] = resolve;
+        send('submitScore', { requestId: id, payload: payload || {} });
+        setTimeout(function () { if (pending[id]) { pending[id]({ ok: false, error: 'timeout' }); delete pending[id]; } }, 8000);
+      });
+    },
+    getMyBest: function (opts) {
+      return new Promise(function (resolve) {
+        var id = nextReqId++;
+        pending[id] = resolve;
+        send('getMyBest', { requestId: id, mode: (opts && opts.mode) || null });
+        setTimeout(function () { if (pending[id]) { pending[id]({ ok: false, error: 'timeout' }); delete pending[id]; } }, 8000);
+      });
+    },
+    getLeaderboard: function (opts) {
+      return new Promise(function (resolve) {
+        var id = nextReqId++;
+        pending[id] = resolve;
+        send('getLeaderboard', { requestId: id, mode: (opts && opts.mode) || null, limit: (opts && opts.limit) || 10 });
+        setTimeout(function () { if (pending[id]) { pending[id]({ ok: false, error: 'timeout' }); delete pending[id]; } }, 8000);
+      });
+    },
     onProfile: null,
     onResume: null,
   };
@@ -86,6 +111,11 @@ const MC_DROP_SDK_JS = `
     } else if (d.mc === 'state') {
       if (d.requestId && pending[d.requestId]) {
         pending[d.requestId](typeof d.state === 'undefined' ? null : d.state);
+        delete pending[d.requestId];
+      }
+    } else if (d.mc === 'submitScore-result' || d.mc === 'getMyBest-result' || d.mc === 'getLeaderboard-result') {
+      if (d.requestId && pending[d.requestId]) {
+        pending[d.requestId](d.result || { ok: false, error: 'empty' });
         delete pending[d.requestId];
       }
     } else if (d.mc === 'resume') {
@@ -396,6 +426,139 @@ router.get('/me/drops', auth, async (req, res) => {
     return res.status(500).json({ erreur: 'Erreur interne.' });
   }
 });
+
+// ===== SCORES (records perso + leaderboard familial) =====
+
+// POST /heimdall/drops/scores
+// Body: { slug, mode, xp, correct, total, perfect, maxCombo, durationMs }
+// Insert un nouveau score row pour l'user courant. Pas de unique constraint :
+// chaque run cree son row, on agrege a la lecture.
+router.post('/drops/scores', auth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const slug = String(b.slug || '').trim().slice(0, 80);
+    if (!slug) return res.status(400).json({ erreur: 'slug requis.' });
+    const mode = String(b.mode || 'default').trim().slice(0, 40) || 'default';
+    const xp = Math.max(0, Math.min(99999, Number(b.xp) | 0));
+    const correct = Math.max(0, Math.min(9999, Number(b.correct) | 0));
+    const total = Math.max(0, Math.min(9999, Number(b.total) | 0));
+    const perfect = b.perfect === true || b.perfect === 'true';
+    const maxCombo = Math.max(0, Math.min(9999, Number(b.maxCombo) | 0));
+    const durationMs = Math.max(0, Math.min(60 * 60 * 1000, Number(b.durationMs) | 0));
+
+    // Verifie access au drop (sauf admin)
+    if (req.user.role !== 'ADMIN') {
+      const drop = await prisma.drop.findUnique({ where: { slug } });
+      if (!drop) return res.status(404).json({ erreur: 'drop introuvable.' });
+      const access = await prisma.dropAccess.findUnique({
+        where: { dropId_userId: { dropId: drop.id, userId: req.user.id } },
+      });
+      if (!access) return res.status(403).json({ erreur: 'pas d\'acces a ce drop.' });
+    }
+
+    const row = await prisma.dropScore.create({
+      data: {
+        dropSlug: slug, userId: req.user.id, mode,
+        xp, correct, total, perfect, maxCombo, durationMs,
+      },
+    });
+
+    // Calcule si c'est un nouveau record perso (best xp) en meme temps
+    const prevBest = await prisma.dropScore.findFirst({
+      where: { dropSlug: slug, userId: req.user.id, mode, id: { not: row.id } },
+      orderBy: { xp: 'desc' },
+    });
+    const isPersonalRecord = !prevBest || row.xp > prevBest.xp;
+
+    return res.json({
+      ok: true,
+      id: row.id,
+      isPersonalRecord,
+      previousBest: prevBest ? prevBest.xp : null,
+    });
+  } catch (err) {
+    console.error('POST /drops/scores error:', err);
+    return res.status(500).json({ ok: false, erreur: 'erreur interne.' });
+  }
+});
+
+// GET /heimdall/drops/:slug/scores/me?mode=X
+// Renvoie le best perso + les 5 runs recents pour l'user courant.
+router.get('/drops/:slug/scores/me', auth, async (req, res) => {
+  try {
+    const slug = String(req.params.slug).trim().slice(0, 80);
+    const mode = req.query.mode ? String(req.query.mode).trim().slice(0, 40) : null;
+    const where = { dropSlug: slug, userId: req.user.id };
+    if (mode) where.mode = mode;
+    const best = await prisma.dropScore.findFirst({
+      where, orderBy: { xp: 'desc' },
+    });
+    const recent = await prisma.dropScore.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 5,
+    });
+    return res.json({
+      ok: true,
+      best: best ? sanitizeScore(best) : null,
+      recent: recent.map(sanitizeScore),
+    });
+  } catch (err) {
+    console.error('GET /drops/:slug/scores/me error:', err);
+    return res.status(500).json({ ok: false, erreur: 'erreur interne.' });
+  }
+});
+
+// GET /heimdall/drops/:slug/scores/leaderboard?mode=X&limit=10
+// Top runs all family pour ce drop + mode. Inclut prenom.
+// Un user peut apparaitre plusieurs fois s'il a plusieurs runs - on garde son MEILLEUR par user.
+router.get('/drops/:slug/scores/leaderboard', auth, async (req, res) => {
+  try {
+    const slug = String(req.params.slug).trim().slice(0, 80);
+    const mode = req.query.mode ? String(req.query.mode).trim().slice(0, 40) : null;
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) | 0 || 10));
+    const where = { dropSlug: slug };
+    if (mode) where.mode = mode;
+
+    // Approche : agreger en SQL par userId, garder le max xp par user.
+    // Prisma a groupBy mais pas de "row associated with max" facile.
+    // On fait simple : pull les top N*3 candidats, garde best par user en JS, slice top N.
+    const candidates = await prisma.dropScore.findMany({
+      where, orderBy: { xp: 'desc' }, take: limit * 4,
+      include: { user: { select: { id: true, firstName: true, profile: true } } },
+    });
+    const seenUser = new Set();
+    const out = [];
+    for (const c of candidates) {
+      if (seenUser.has(c.userId)) continue;
+      seenUser.add(c.userId);
+      out.push({
+        userId: c.userId,
+        firstName: c.user.firstName,
+        profile: c.user.profile,
+        xp: c.xp,
+        correct: c.correct,
+        total: c.total,
+        perfect: c.perfect,
+        maxCombo: c.maxCombo,
+        durationMs: c.durationMs,
+        createdAt: c.createdAt,
+        isMe: c.userId === req.user.id,
+      });
+      if (out.length >= limit) break;
+    }
+    return res.json({ ok: true, top: out, mode: mode || null });
+  } catch (err) {
+    console.error('GET /drops/:slug/scores/leaderboard error:', err);
+    return res.status(500).json({ ok: false, erreur: 'erreur interne.' });
+  }
+});
+
+function sanitizeScore(s) {
+  return {
+    id: s.id, mode: s.mode, xp: s.xp, correct: s.correct, total: s.total,
+    perfect: s.perfect, maxCombo: s.maxCombo, durationMs: s.durationMs,
+    createdAt: s.createdAt,
+  };
+}
 
 // ===== INBOUND HMAC FRIDAY =====
 // POST /api/heimdall/drops/inbound — FRIDAY pousse un drop signe HMAC.
