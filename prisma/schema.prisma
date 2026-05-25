@@ -78,6 +78,7 @@ model User {
   messageReactions           MessageReaction[]
   fridayConversations        FridayConversation[]
   dropAccesses               DropAccess[]
+  dropScores                 DropScore[]
 }
 
 model App {
@@ -469,4 +470,27 @@ model DropAccess {
 
   @@unique([dropId, userId])
   @@index([userId])
+}
+
+// Scores soumis par les drops via MissionControl.submitScore(...).
+// Sert au record perso et au leaderboard familial.
+// `dropSlug` est libre (string), pas FK strict, pour eviter le cleanup en cascade
+// si un drop est supprime puis re-cree (les scores survivent).
+// `mode` est libre aussi (chaque drop choisit sa taxonomie, ex: 'addition', 'tables', 'mixte').
+model DropScore {
+  id         Int      @id @default(autoincrement())
+  dropSlug   String
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode       String   @default("default")
+  xp         Int      @default(0)
+  correct    Int      @default(0)
+  total      Int      @default(0)
+  perfect    Boolean  @default(false)
+  maxCombo   Int      @default(0)
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([dropSlug, mode, xp])
+  @@index([userId, dropSlug, mode, xp])
 }
