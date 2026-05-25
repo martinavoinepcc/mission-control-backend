@@ -326,8 +326,23 @@ router.get('/drops/:slug/content', authQueryOrHeader, async (req, res) => {
         return res.status(403).send('<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem;background:#0a0a14;color:#fff;">Pas d\'acces a ce drop. Demande a Martin de t\'ajouter.</body></html>');
       }
     }
+    // Override les headers Helmet pour permettre l'iframe cross-origin depuis le frontend MC.
+    // Le content est admin-approuve (trust manuel) donc CSP permissive est OK ici.
+    res.removeHeader('X-Frame-Options');
+    res.removeHeader('Cross-Origin-Embedder-Policy');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
+        "img-src * data: blob:",
+        "media-src * data: blob:",
+        "font-src * data:",
+        "frame-ancestors 'self' https://my-mission-control.com https://www.my-mission-control.com https://app.my-mission-control.com http://localhost:3000",
+      ].join('; '),
+    );
     // Injecte le SDK MissionControl avant </body> pour que tout drop herite du bus
     // automatiquement (cf. constant MC_DROP_SDK_JS + injectDropSdk en haut du fichier).
     return res.send(injectDropSdk(drop.htmlContent));
