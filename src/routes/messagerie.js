@@ -9,9 +9,30 @@
 // - POST /conversations/:id/read            → reset lastReadAt
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
 const pushModule = require('./push');
+
+// V1.3 : limites par userId (pas IP — Render est derriere un NAT, sinon tous
+// les users seraient penalises ensemble). keyGenerator fallback sur IP si pas auth.
+const messageLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyGenerator: (req) => String((req.user && req.user.id) || req.ip),
+  message: { erreur: 'Trop de messages, ralentis un peu 😅' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const reactionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  keyGenerator: (req) => String((req.user && req.user.id) || req.ip),
+  message: { erreur: 'Trop de reactions, ralentis 😅' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -377,7 +398,7 @@ router.get('/:id/messages', auth, async (req, res) => {
 });
 
 // POST /conversations/:id/messages — envoie un message (texte et/ou image) + push auto
-router.post('/:id/messages', auth, async (req, res) => {
+router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const p = await ensureParticipant(req.user.id, id);
@@ -610,7 +631,7 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 // POST /conversations/:id/messages/:msgId/reactions — toggle reaction emoji
-router.post('/:id/messages/:msgId/reactions', auth, async (req, res) => {
+router.post('/:id/messages/:msgId/reactions', auth, reactionLimiter, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const msgId = Number.parseInt(req.params.msgId, 10);
