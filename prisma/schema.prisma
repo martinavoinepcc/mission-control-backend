@@ -76,6 +76,7 @@ model User {
   messagerieParticipations   ConversationParticipant[]
   messagerieMessages         Message[]
   messageReactions           MessageReaction[]
+  messageReads               MessageRead[]
   fridayConversations        FridayConversation[]
   dropAccesses               DropAccess[]
   dropScores                 DropScore[]
@@ -416,10 +417,32 @@ model Message {
   replies        Message[]    @relation("MessageReply")
   // Reactions (emoji)
   reactions      MessageReaction[]
+  // V2.7 : read receipts par message (qui a lu, quand).
+  reads          MessageRead[]
   createdAt      DateTime     @default(now())
   editedAt       DateTime?
+  // V2.8 : soft-delete d'un message. Si != null, le body / blobs sont vides
+  // et le client affiche "Message supprime".
+  deletedAt      DateTime?
 
   @@index([conversationId, createdAt])
+}
+
+// V2.7 : MessageRead — qui a lu quel message, quand. Cree en bulk par
+// POST /conversations/:id/read (createMany skipDuplicates).
+// Utilise pour afficher les mini-avatars de lecture sous les messages
+// envoyes par l'user courant (Thread.tsx).
+model MessageRead {
+  id        Int      @id @default(autoincrement())
+  messageId Int
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
 }
 
 // Reaction emoji sur un message. Unique par (message, user, emoji) pour eviter double-react.
