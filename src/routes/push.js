@@ -10,8 +10,19 @@
 
 const express = require('express');
 const webpush = require('web-push');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
+
+// V1.3 : limite POST /push/test a 5/min/user pour eviter le spam de notifs en boucle.
+const pushTestLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  keyGenerator: (req) => String((req.user && req.user.id) || req.ip),
+  message: { erreur: 'Trop de tests push, attends une minute.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -156,7 +167,7 @@ router.get('/status', auth, async (req, res) => {
 // POST /push/test
 // Envoie un push "hello world" à toutes les subscriptions de l'utilisateur connecté.
 // Body optionnel : { title?, body? }.
-router.post('/test', auth, async (req, res) => {
+router.post('/test', auth, pushTestLimiter, async (req, res) => {
   try {
     const { title, body } = req.body || {};
     const payload = {
