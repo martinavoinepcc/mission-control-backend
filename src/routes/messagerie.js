@@ -6,13 +6,21 @@
 // - POST /conversations                     → crée une convo (body: { title?, participantIds })
 // - GET  /conversations/:id/messages        → liste les messages (?limit=50&before=<id>)
 // - POST /conversations/:id/messages        → envoie un message + push auto. Body: { body, image? }
-// - POST /conversations/:id/read            → reset lastReadAt
+// - POST /conversations/:id/read            → reset lastReadAt + MessageRead bulk + broadcast SSE
+// - POST /conversations/:id/typing          → broadcast SSE 'typing' (pas de DB)
+// - PATCH/DELETE /conversations/:id/messages/:msgId → edit (<=3min) / soft-delete
+//
+// V2.6 : chaque mutation broadcast un event SSE aux participants concernes.
+// V2.7 : typing + MessageRead par message.
+// V2.8 : edit (auteur, <=3min) + soft-delete (auteur ou admin).
+// V2.10 : badge count global non-lus dans le payload push.
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
 const pushModule = require('./push');
+const sseModule = require('./messagerie-sse');
 
 // V1.3 : limites par userId (pas IP — Render est derriere un NAT, sinon tous
 // les users seraient penalises ensemble). keyGenerator fallback sur IP si pas auth.
@@ -34,20 +42,35 @@ const reactionLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// V2.7 : typing rate-limit 20/min/user pour eviter le spam de keystrokes.
+const typingLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  keyGenerator: (req) => String((req.user && req.user.id) || req.ip),
+  message: { erreur: 'Trop de signaux typing.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const prisma = new PrismaClient();
 const router = express.Router();
 
 const sendPushToUser = pushModule && pushModule.sendPushToUser;
+const broadcastToConversation = sseModule && sseModule.broadcastToConversation;
+const broadcastToUser = sseModule && sseModule.broadcastToUser;
 
 // Limite taille image message (base64 data URL). 2 MB laisse de la marge pour les photos iPhone
 // qui sortent parfois ~1-1.5 MB même après compression webp qualité 0.5.
 const MAX_IMAGE_BASE64_BYTES = 2 * 1024 * 1024;
 // Limite taille audio (MP3 et autres formats audio). 6 MB en base64 ≈ 4.5 MB MP3 ≈ ~5min de speech.
 const MAX_AUDIO_BASE64_BYTES = 6 * 1024 * 1024;
-// Types audio acceptes (whitelist stricte).
+// Types audio acceptes (whitelist stricte). audio/webm pour l'enregistrement vocal in-app V2.9.
 const ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/wav', 'audio/webm', 'audio/ogg'];
 // Emojis autorisees pour reactions (whitelist pour eviter les injections / abus).
 const ALLOWED_REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
+
+// V2.8 : fenetre d'edition d'un message (3 min apres envoi).
+const EDIT_WINDOW_MS = 3 * 60 * 1000;
 
 // Base URL pour les avatars dans les push icon (doit être absolue).
 const PUBLIC_API_URL =
@@ -58,6 +81,26 @@ async function ensureParticipant(userId, conversationId) {
   return prisma.conversationParticipant.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
   });
+}
+
+// V2.10 : compte global de messages non-lus pour un user (toutes convos confondues).
+// Utilise pour le badge SW push-driven.
+async function getUnreadCountForUser(userId) {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT COUNT(m.id)::int AS n
+      FROM "ConversationParticipant" cp
+      JOIN "Message" m ON m."conversationId" = cp."conversationId"
+      WHERE cp."userId" = ${userId}
+        AND m."createdAt" > cp."lastReadAt"
+        AND m."authorId" != ${userId}
+        AND m."deletedAt" IS NULL
+    `;
+    return Number((rows && rows[0] && rows[0].n) || 0);
+  } catch (err) {
+    console.warn('[messagerie] getUnreadCountForUser failed:', err && err.message);
+    return 0;
+  }
 }
 
 // GET /conversations — liste
@@ -86,6 +129,8 @@ router.get('/', auth, async (req, res) => {
             messages: {
               orderBy: { createdAt: 'desc' },
               take: 1,
+              // V2.8 : exclut les messages soft-deleted du "last message" affiche
+              where: { deletedAt: null },
               include: { author: { select: { id: true, firstName: true } } },
             },
           },
@@ -94,7 +139,7 @@ router.get('/', auth, async (req, res) => {
     });
 
     // V1.5 N+1 fix : un seul raw query pour calculer les unread par convo.
-    // PostgreSQL : JOIN ConversationParticipant -> Message avec filtre lastReadAt + authorId.
+    // V2.8 : exclut les messages soft-deleted.
     const unreadMap = new Map();
     if (participations.length > 0) {
       const rows = await prisma.$queryRaw`
@@ -104,6 +149,7 @@ router.get('/', auth, async (req, res) => {
           ON m."conversationId" = cp."conversationId"
          AND m."createdAt" > cp."lastReadAt"
          AND m."authorId" != cp."userId"
+         AND m."deletedAt" IS NULL
         WHERE cp."userId" = ${userId}
         GROUP BY cp."conversationId"
       `;
@@ -112,8 +158,7 @@ router.get('/', auth, async (req, res) => {
       }
     }
 
-    // V1.5 avatar leak fix : on collecte les userIds qui apparaissent dans les participants
-    // puis on fait UNE query qui retourne uniquement {id} pour les users qui ont un avatar.
+    // V1.5 avatar leak fix
     const allParticipantIds = new Set();
     for (const p of participations) {
       for (const cp of p.conversation.participants) {
@@ -179,7 +224,6 @@ router.get('/:id', auth, async (req, res) => {
               select: {
                 id: true, firstName: true, username: true,
                 avatarUpdatedAt: true,
-                // V1.5 : pas de blob avatarData ici.
               },
             },
           },
@@ -188,7 +232,6 @@ router.get('/:id', auth, async (req, res) => {
     });
     if (!convo) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
-    // V1.5 avatar leak fix : projection booleenne via query separee {id}.
     const partIds = convo.participants.map((cp) => cp.user.id);
     const avatarOwners = partIds.length
       ? await prisma.user.findMany({
@@ -242,8 +285,7 @@ router.post('/', auth, async (req, res) => {
 
     const cleanTitle = typeof title === 'string' && title.trim() ? title.trim().slice(0, 80) : null;
 
-    // DM dedup : si c'est une conversation 1-à-1 sans titre, réutiliser la convo existante
-    // entre ces 2 users si elle existe (évite les doublons de DM).
+    // DM dedup
     if (sanitized.length === 2 && !cleanTitle) {
       const otherId = sanitized.find((id) => id !== req.user.id);
       const myParticipations = await prisma.conversationParticipant.findMany({
@@ -257,7 +299,6 @@ router.post('/', auth, async (req, res) => {
                     select: {
                       id: true, firstName: true, username: true,
                       avatarUpdatedAt: true,
-                      // V1.5 : pas de blob avatarData.
                     },
                   },
                 },
@@ -309,7 +350,6 @@ router.post('/', auth, async (req, res) => {
               select: {
                 id: true, firstName: true,
                 avatarUpdatedAt: true,
-                // V1.5 : pas de blob avatarData.
               },
             },
           },
@@ -358,9 +398,7 @@ router.get('/:id/messages', auth, async (req, res) => {
     const where = { conversationId: id };
     if (Number.isFinite(beforeId) && beforeId > 0) where.id = { lt: beforeId };
 
-    // IMPORTANT : on n'inclut PAS imageData/audioData ici (payloads base64 lourds).
-    // Le client charge les binaires via GET /:id/messages/:msgId/image|audio en lazy
-    // (cf. V1.1). On expose juste les flags hasImage / hasAudio + meta dimensions.
+    // V2.7 : on inclut MessageRead pour chaque message (filtres aux autres users).
     const recent = await prisma.message.findMany({
       where,
       orderBy: { id: 'desc' },
@@ -376,17 +414,16 @@ router.get('/:id/messages', auth, async (req, res) => {
         replyToId: true,
         createdAt: true,
         editedAt: true,
-        // Astuce Postgres : projection booleenne sans charger le blob.
-        // Prisma ne supporte pas `{ field: { _not_null: true } }` en select, donc on
-        // recupere les flags via un raw SELECT supplementaire ci-dessous.
+        deletedAt: true,
         author: { select: { id: true, firstName: true } },
         replyTo: {
           select: {
-            id: true, body: true, authorId: true, audioName: true,
+            id: true, body: true, authorId: true, audioName: true, deletedAt: true,
             author: { select: { id: true, firstName: true } },
           },
         },
         reactions: { select: { emoji: true, userId: true } },
+        reads: { select: { userId: true, readAt: true } },
       },
     });
 
@@ -405,7 +442,6 @@ router.get('/:id/messages', auth, async (req, res) => {
       }
     }
 
-    // Agrege les reactions par emoji pour chaque message
     function aggregateReactions(rxs, currentUserId) {
       const byEmoji = new Map();
       for (const r of rxs || []) {
@@ -421,29 +457,40 @@ router.get('/:id/messages', auth, async (req, res) => {
     const messages = recent.reverse().map((m) => {
       const flags = flagsMap.get(m.id) || { hasImage: false, hasAudio: false };
       const replyFlags = m.replyTo ? (flagsMap.get(m.replyTo.id) || { hasImage: false, hasAudio: false }) : null;
+      const isDeleted = !!m.deletedAt;
+      // V2.7 : filtre les reads aux participants autres que l'auteur (l'auteur a
+      // lu par definition). On garde tous les reads des autres pour pouvoir
+      // afficher les mini-avatars sous les messages.
+      const reads = (m.reads || [])
+        .filter((r) => r.userId !== m.authorId)
+        .map((r) => ({ userId: r.userId, readAt: r.readAt }));
       return {
         id: m.id,
         authorId: m.authorId,
         authorFirstName: m.author ? m.author.firstName : null,
-        body: m.body,
-        hasImage: flags.hasImage,
-        imageWidth: m.imageWidth || null,
-        imageHeight: m.imageHeight || null,
-        hasAudio: flags.hasAudio,
-        audioType: m.audioType || null,
-        audioName: m.audioName || null,
+        // V2.8 : body vidé si soft-deleted (par securite, aussi cote serveur).
+        body: isDeleted ? '' : m.body,
+        hasImage: !isDeleted && flags.hasImage,
+        imageWidth: isDeleted ? null : (m.imageWidth || null),
+        imageHeight: isDeleted ? null : (m.imageHeight || null),
+        hasAudio: !isDeleted && flags.hasAudio,
+        audioType: isDeleted ? null : (m.audioType || null),
+        audioName: isDeleted ? null : (m.audioName || null),
         replyTo: m.replyTo ? {
           id: m.replyTo.id,
-          body: m.replyTo.body,
+          body: m.replyTo.deletedAt ? '' : m.replyTo.body,
           authorId: m.replyTo.authorId,
           authorFirstName: m.replyTo.author ? m.replyTo.author.firstName : null,
-          hasImage: !!(replyFlags && replyFlags.hasImage),
-          hasAudio: !!(replyFlags && replyFlags.hasAudio),
-          audioName: m.replyTo.audioName || null,
+          hasImage: !m.replyTo.deletedAt && !!(replyFlags && replyFlags.hasImage),
+          hasAudio: !m.replyTo.deletedAt && !!(replyFlags && replyFlags.hasAudio),
+          audioName: m.replyTo.deletedAt ? null : (m.replyTo.audioName || null),
+          deletedAt: m.replyTo.deletedAt || null,
         } : null,
-        reactions: aggregateReactions(m.reactions, req.user.id),
+        reactions: isDeleted ? [] : aggregateReactions(m.reactions, req.user.id),
+        reads,
         createdAt: m.createdAt,
         editedAt: m.editedAt,
+        deletedAt: m.deletedAt || null,
       };
     });
 
@@ -454,6 +501,37 @@ router.get('/:id/messages', auth, async (req, res) => {
   }
 });
 
+// Formatte un message pour SSE / response API (sans imageData/audioData).
+function formatMessageForBroadcast(msg, hasImage, hasAudio) {
+  return {
+    id: msg.id,
+    authorId: msg.authorId,
+    authorFirstName: msg.author ? msg.author.firstName : null,
+    body: msg.body,
+    hasImage: !!hasImage,
+    imageWidth: msg.imageWidth || null,
+    imageHeight: msg.imageHeight || null,
+    hasAudio: !!hasAudio,
+    audioType: msg.audioType || null,
+    audioName: msg.audioName || null,
+    replyTo: msg.replyTo ? {
+      id: msg.replyTo.id,
+      body: msg.replyTo.deletedAt ? '' : msg.replyTo.body,
+      authorId: msg.replyTo.authorId,
+      authorFirstName: msg.replyTo.author ? msg.replyTo.author.firstName : null,
+      hasImage: !msg.replyTo.deletedAt && !!msg.replyTo.imageData,
+      hasAudio: !msg.replyTo.deletedAt && !!msg.replyTo.audioData,
+      audioName: msg.replyTo.deletedAt ? null : (msg.replyTo.audioName || null),
+      deletedAt: msg.replyTo.deletedAt || null,
+    } : null,
+    reactions: [],
+    reads: [],
+    createdAt: msg.createdAt,
+    editedAt: msg.editedAt || null,
+    deletedAt: msg.deletedAt || null,
+  };
+}
+
 // POST /conversations/:id/messages — envoie un message (texte et/ou image) + push auto
 router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
   try {
@@ -463,15 +541,14 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
 
     const raw = (req.body && req.body.body) || '';
     const body = String(raw).trim();
-    const image = req.body && req.body.image; // { data, width, height } or undefined
-    const audio = req.body && req.body.audio; // { data, type, name } or undefined
+    const image = req.body && req.body.image;
+    const audio = req.body && req.body.audio;
     const replyToIdRaw = req.body && req.body.replyToId;
 
     if (!body && !image && !audio) {
       return res.status(400).json({ erreur: 'Message vide (texte, image ou audio requis).' });
     }
 
-    // V1.5 : valide replyToId si fourni. Si invalide -> 400 explicite (avant : silencieux).
     let replyToId = null;
     if (replyToIdRaw !== undefined && replyToIdRaw !== null) {
       const candidate = Number.parseInt(replyToIdRaw, 10);
@@ -521,10 +598,11 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
         });
       }
       const declaredType = (typeof audio.type === 'string' && audio.type) ? audio.type.toLowerCase() : null;
-      // Extrait le mime depuis le data URL si type non fourni
       const mimeMatch = audio.data.match(/^data:(audio\/[^;]+)/);
-      const mime = declaredType || (mimeMatch ? mimeMatch[1].toLowerCase() : null);
-      // V1.5 : whitelist stricte. Plus de fallback "tout audio/*".
+      // V2.9 : MediaRecorder produit "audio/webm;codecs=opus" — split sur ; pour
+      // garder uniquement le mime sans les codecs.
+      const rawMime = declaredType || (mimeMatch ? mimeMatch[1].toLowerCase() : null);
+      const mime = rawMime ? rawMime.split(';')[0].trim() : null;
       if (!mime || !ALLOWED_AUDIO_TYPES.includes(mime)) {
         return res.status(400).json({
           erreur: `Type audio non supporte (${mime || 'inconnu'}). Formats acceptes : ${ALLOWED_AUDIO_TYPES.join(', ')}.`,
@@ -533,7 +611,6 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       audioData = audio.data;
       audioType = mime;
       const rawName = (typeof audio.name === 'string' && audio.name) ? audio.name : 'audio.mp3';
-      // Sanitize filename : alphanum/dot/dash/underscore, max 80
       audioName = rawName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'audio.mp3';
     }
 
@@ -557,8 +634,8 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
           author: { select: { id: true, firstName: true, avatarData: true } },
           replyTo: {
             select: {
-              id: true, body: true, authorId: true, audioName: true,
-              imageData: true, audioData: true, // pour calcul hasImage/hasAudio uniquement
+              id: true, body: true, authorId: true, audioName: true, deletedAt: true,
+              imageData: true, audioData: true,
               author: { select: { id: true, firstName: true } },
             },
           },
@@ -574,6 +651,16 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       }),
     ]);
 
+    // V2.6 : broadcast SSE 'message:new' aux autres participants.
+    if (typeof broadcastToConversation === 'function') {
+      const broadcastMsg = formatMessageForBroadcast(msg, !!imageData, !!audioData);
+      broadcastToConversation(id, 'message:new', {
+        conversationId: id,
+        message: broadcastMsg,
+      }, req.user.id).catch(() => {});
+    }
+
+    // Push fan-out + badge V2.10
     if (typeof sendPushToUser === 'function') {
       (async () => {
         try {
@@ -600,19 +687,22 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
             ? `${PUBLIC_API_URL}/users/${msg.author.id}/avatar`
             : '/icons/icon-192.png';
 
-          const payload = {
-            title,
-            body: preview,
-            url: `/apps/messagerie/thread/?id=${id}`,
-            tag: `convo-${id}`,
-            icon: iconUrl,
-          };
           await Promise.all(
-            otherParticipants.map((op) =>
-              sendPushToUser(op.userId, payload).catch((e) => {
+            otherParticipants.map(async (op) => {
+              // V2.10 : badge global non-lus pour cet user (apres l'insert).
+              const badge = await getUnreadCountForUser(op.userId);
+              const payload = {
+                title,
+                body: preview,
+                url: `/apps/messagerie/thread/?id=${id}`,
+                tag: `convo-${id}`,
+                icon: iconUrl,
+                badge,
+              };
+              return sendPushToUser(op.userId, payload).catch((e) => {
                 console.warn('[messagerie] push fail for user', op.userId, e && e.message);
-              })
-            )
+              });
+            })
           );
         } catch (e) {
           console.warn('[messagerie] push dispatch failed:', e && e.message);
@@ -625,7 +715,6 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       authorId: msg.authorId,
       authorFirstName: msg.author ? msg.author.firstName : null,
       body: msg.body,
-      // Pas de payload base64 dans la reponse (le client lit via les routes binaires lazy).
       hasImage: !!msg.imageData,
       imageWidth: msg.imageWidth || null,
       imageHeight: msg.imageHeight || null,
@@ -634,15 +723,19 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       audioName: msg.audioName || null,
       replyTo: msg.replyTo ? {
         id: msg.replyTo.id,
-        body: msg.replyTo.body,
+        body: msg.replyTo.deletedAt ? '' : msg.replyTo.body,
         authorId: msg.replyTo.authorId,
         authorFirstName: msg.replyTo.author ? msg.replyTo.author.firstName : null,
-        hasImage: !!msg.replyTo.imageData,
-        hasAudio: !!msg.replyTo.audioData,
-        audioName: msg.replyTo.audioName || null,
+        hasImage: !msg.replyTo.deletedAt && !!msg.replyTo.imageData,
+        hasAudio: !msg.replyTo.deletedAt && !!msg.replyTo.audioData,
+        audioName: msg.replyTo.deletedAt ? null : (msg.replyTo.audioName || null),
+        deletedAt: msg.replyTo.deletedAt || null,
       } : null,
       reactions: [],
+      reads: [],
       createdAt: msg.createdAt,
+      editedAt: msg.editedAt || null,
+      deletedAt: msg.deletedAt || null,
     });
   } catch (err) {
     console.error('POST /conversations/:id/messages error:', err);
@@ -650,17 +743,58 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
   }
 });
 
-// POST /conversations/:id/read
+// POST /conversations/:id/read — V2.7 : reset lastReadAt + cree MessageRead bulk + broadcast SSE
 router.post('/:id/read', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const p = await ensureParticipant(req.user.id, id);
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
+    const now = new Date();
     await prisma.conversationParticipant.update({
       where: { conversationId_userId: { conversationId: id, userId: req.user.id } },
-      data: { lastReadAt: new Date() },
+      data: { lastReadAt: now },
     });
+
+    // V2.7 : insere des MessageRead pour TOUS les messages de la convo dont
+    // createdAt <= now ET pas l'auteur (pas besoin de "se lire soi-meme") ET
+    // pas deja lu (skipDuplicates). createMany est plus efficient que des inserts
+    // un par un, surtout si la convo a beaucoup de messages.
+    try {
+      const msgsToMark = await prisma.message.findMany({
+        where: {
+          conversationId: id,
+          createdAt: { lte: now },
+          authorId: { not: req.user.id },
+          deletedAt: null,
+          // Pas de MessageRead deja pour cet user
+          reads: { none: { userId: req.user.id } },
+        },
+        select: { id: true },
+        take: 500, // garde-fou
+      });
+      if (msgsToMark.length > 0) {
+        await prisma.messageRead.createMany({
+          data: msgsToMark.map((m) => ({
+            messageId: m.id,
+            userId: req.user.id,
+            readAt: now,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    } catch (err) {
+      console.warn('[messagerie] MessageRead bulk insert failed:', err && err.message);
+    }
+
+    // V2.6 : broadcast SSE 'read' aux autres participants.
+    if (typeof broadcastToConversation === 'function') {
+      broadcastToConversation(id, 'read', {
+        conversationId: id,
+        userId: req.user.id,
+        lastReadAt: now,
+      }, req.user.id).catch(() => {});
+    }
 
     return res.json({ ok: true });
   } catch (err) {
@@ -669,9 +803,141 @@ router.post('/:id/read', auth, async (req, res) => {
   }
 });
 
+// POST /conversations/:id/typing — V2.7 : broadcast SSE 'typing' (pas de DB)
+router.post('/:id/typing', auth, typingLimiter, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    if (typeof broadcastToConversation === 'function') {
+      const me = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { firstName: true },
+      });
+      const now = Date.now();
+      broadcastToConversation(id, 'typing', {
+        conversationId: id,
+        userId: req.user.id,
+        displayName: me ? me.firstName : 'Quelqu\'un',
+        expiresAt: now + 4000,
+      }, req.user.id).catch(() => {});
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /conversations/:id/typing error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// PATCH /conversations/:id/messages/:msgId — V2.8 edit (auteur, <=3min)
+router.patch('/:id/messages/:msgId', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(msgId)) {
+      return res.status(400).json({ erreur: 'Identifiants invalides.' });
+    }
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const msg = await prisma.message.findFirst({
+      where: { id: msgId, conversationId: id },
+      select: { id: true, authorId: true, createdAt: true, deletedAt: true },
+    });
+    if (!msg) return res.status(404).json({ erreur: 'Message introuvable.' });
+    if (msg.deletedAt) return res.status(410).json({ erreur: 'Message supprimé.' });
+    if (msg.authorId !== req.user.id) {
+      return res.status(403).json({ erreur: 'Seul l\'auteur peut modifier ce message.' });
+    }
+    const age = Date.now() - new Date(msg.createdAt).getTime();
+    if (age > EDIT_WINDOW_MS) {
+      return res.status(403).json({
+        erreur: 'Modification possible seulement dans les 3 minutes après l\'envoi.',
+      });
+    }
+
+    const raw = (req.body && req.body.body) || '';
+    const newBody = String(raw).trim();
+    if (!newBody) return res.status(400).json({ erreur: 'Le message ne peut pas être vide.' });
+    if (newBody.length > 4000) {
+      return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
+    }
+
+    const now = new Date();
+    await prisma.message.update({
+      where: { id: msgId },
+      data: { body: newBody, editedAt: now },
+    });
+
+    if (typeof broadcastToConversation === 'function') {
+      broadcastToConversation(id, 'message:edit', {
+        conversationId: id,
+        messageId: msgId,
+        body: newBody,
+        editedAt: now,
+      }).catch(() => {});
+    }
+
+    return res.json({ ok: true, messageId: msgId, body: newBody, editedAt: now });
+  } catch (err) {
+    console.error('PATCH /conversations/:id/messages/:msgId error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// DELETE /conversations/:id/messages/:msgId — V2.8 soft-delete
+router.delete('/:id/messages/:msgId', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(msgId)) {
+      return res.status(400).json({ erreur: 'Identifiants invalides.' });
+    }
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const msg = await prisma.message.findFirst({
+      where: { id: msgId, conversationId: id },
+      select: { id: true, authorId: true, deletedAt: true },
+    });
+    if (!msg) return res.status(404).json({ erreur: 'Message introuvable.' });
+    if (msg.deletedAt) return res.json({ ok: true }); // idempotent
+
+    const isAdmin = req.user.role === 'ADMIN';
+    const isAuthor = msg.authorId === req.user.id;
+    if (!isAdmin && !isAuthor) {
+      return res.status(403).json({ erreur: 'Seul l\'auteur ou un admin peut supprimer.' });
+    }
+
+    const now = new Date();
+    // Soft-delete : vide body + blobs pour liberer la place + set deletedAt.
+    await prisma.message.update({
+      where: { id: msgId },
+      data: {
+        deletedAt: now,
+        body: '',
+        imageData: null,
+        audioData: null,
+      },
+    });
+
+    if (typeof broadcastToConversation === 'function') {
+      broadcastToConversation(id, 'message:delete', {
+        conversationId: id,
+        messageId: msgId,
+      }).catch(() => {});
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /conversations/:id/messages/:msgId error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
 // DELETE /conversations/:id — supprime la conversation pour TOUS les participants.
-// V1.4 : reserve a l'admin OU au createur (sinon 403 + suggere /leave).
-// Cascade supprime messages + participants.
 router.delete('/:id', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -692,7 +958,20 @@ router.delete('/:id', auth, async (req, res) => {
       });
     }
 
-    // Cascade delete via Prisma schema (Message + ConversationParticipant onDelete: Cascade)
+    // V2.6 : broadcast SSE 'conversation:deleted' avant la suppression (on a
+    // encore acces aux participants en DB).
+    if (typeof broadcastToUser === 'function') {
+      try {
+        const parts = await prisma.conversationParticipant.findMany({
+          where: { conversationId: id },
+          select: { userId: true },
+        });
+        for (const part of parts) {
+          broadcastToUser(part.userId, 'conversation:deleted', { conversationId: id });
+        }
+      } catch (e) { /* silencieux */ }
+    }
+
     await prisma.conversation.delete({ where: { id } });
     return res.json({ ok: true });
   } catch (err) {
@@ -701,16 +980,13 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /conversations/:id/leave — l'utilisateur courant se retire d'une conversation.
-// V1.4 : alternative au DELETE pour les non-createurs / non-admins.
-// Conserve la conv meme si <2 participants restent (peut etre reactivee).
+// POST /conversations/:id/leave
 router.post('/:id/leave', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const p = await ensureParticipant(req.user.id, id);
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
-    // Recupere le nom + autres participants avant suppression (pour la push notif)
     const me = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { firstName: true },
@@ -724,7 +1000,17 @@ router.post('/:id/leave', auth, async (req, res) => {
       where: { conversationId_userId: { conversationId: id, userId: req.user.id } },
     });
 
-    // Notif (best effort) aux autres participants
+    // V2.6 : broadcast SSE
+    if (typeof broadcastToConversation === 'function') {
+      broadcastToConversation(id, 'participant:leave', {
+        conversationId: id,
+        userId: req.user.id,
+      }).catch(() => {});
+    }
+    if (typeof broadcastToUser === 'function') {
+      broadcastToUser(req.user.id, 'conversation:deleted', { conversationId: id });
+    }
+
     if (typeof sendPushToUser === 'function' && me && others.length) {
       const authorName = me.firstName || 'Quelqu\'un';
       const payload = {
@@ -762,16 +1048,17 @@ router.post('/:id/messages/:msgId/reactions', auth, reactionLimiter, async (req,
       return res.status(400).json({ erreur: 'Emoji non autorise.' });
     }
 
-    // Verifie que le message existe dans cette convo
     const msg = await prisma.message.findUnique({
       where: { id: msgId },
-      select: { conversationId: true },
+      select: { conversationId: true, deletedAt: true },
     });
     if (!msg || msg.conversationId !== id) {
       return res.status(404).json({ erreur: 'Message introuvable.' });
     }
+    if (msg.deletedAt) {
+      return res.status(410).json({ erreur: 'Message supprimé.' });
+    }
 
-    // Toggle : si la reaction existe pour ce user/emoji on la supprime, sinon on la cree
     const existing = await prisma.messageReaction.findUnique({
       where: { messageId_userId_emoji: { messageId: msgId, userId: req.user.id, emoji } },
     });
@@ -783,7 +1070,6 @@ router.post('/:id/messages/:msgId/reactions', auth, reactionLimiter, async (req,
       });
     }
 
-    // Renvoie l'etat agrege a jour pour ce message
     const all = await prisma.messageReaction.findMany({
       where: { messageId: msgId },
       select: { emoji: true, userId: true },
@@ -796,7 +1082,19 @@ router.post('/:id/messages/:msgId/reactions', auth, reactionLimiter, async (req,
       e.userIds.push(r.userId);
       if (r.userId === req.user.id) e.mine = true;
     }
-    return res.json({ messageId: msgId, reactions: Array.from(byEmoji.values()) });
+    const reactionsAgg = Array.from(byEmoji.values());
+
+    // V2.6 : broadcast SSE 'message:reaction' a tous les participants (incluant
+    // l'auteur de la reaction pour que ses autres devices voient l'update).
+    if (typeof broadcastToConversation === 'function') {
+      broadcastToConversation(id, 'message:reaction', {
+        conversationId: id,
+        messageId: msgId,
+        reactions: reactionsAgg,
+      }).catch(() => {});
+    }
+
+    return res.json({ messageId: msgId, reactions: reactionsAgg });
   } catch (err) {
     console.error('POST /reactions error:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
@@ -811,7 +1109,6 @@ function parseDataUrl(dataUrl, expectedPrefix) {
   if (!match) return null;
   const mime = match[1];
   const payload = match[2];
-  // base64 marker
   const isB64 = /;base64,/.test(dataUrl.slice(0, dataUrl.indexOf(',') + 1));
   try {
     const buffer = isB64 ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf-8');
@@ -822,8 +1119,6 @@ function parseDataUrl(dataUrl, expectedPrefix) {
 }
 
 // GET /conversations/:id/messages/:msgId/image
-// Sert le binaire image en lazy. Accepte JWT via header OU ?token= (img src ne peut pas
-// porter de header Authorization). Verifie participant + appartenance du message.
 router.get('/:id/messages/:msgId/image', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
@@ -835,7 +1130,7 @@ router.get('/:id/messages/:msgId/image', auth, async (req, res) => {
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
     const msg = await prisma.message.findFirst({
-      where: { id: msgId, conversationId: id },
+      where: { id: msgId, conversationId: id, deletedAt: null },
       select: { imageData: true },
     });
     if (!msg || !msg.imageData) return res.status(404).json({ erreur: 'Image introuvable.' });
@@ -867,7 +1162,7 @@ router.get('/:id/messages/:msgId/audio', auth, async (req, res) => {
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
     const msg = await prisma.message.findFirst({
-      where: { id: msgId, conversationId: id },
+      where: { id: msgId, conversationId: id, deletedAt: null },
       select: { audioData: true, audioName: true, audioType: true },
     });
     if (!msg || !msg.audioData) return res.status(404).json({ erreur: 'Audio introuvable.' });
