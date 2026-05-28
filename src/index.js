@@ -27,11 +27,14 @@ const PORT = process.env.PORT || 3000;
 
 app.use(helmet());
 
+// V1.5 : whitelist CORS stricte. Plus de wildcard *.onrender.com (les preview deploys
+// devront passer par FRONTEND_URL env var si besoin).
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'https://my-mission-control.com',
   'https://my-mission-control.com',
   'https://www.my-mission-control.com',
   'https://app.my-mission-control.com',
+  'http://localhost:3000',
 ];
 
 app.use(
@@ -39,7 +42,6 @@ app.use(
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (origin.endsWith('.onrender.com')) return cb(null, true);
       return cb(new Error('Origine CORS non autorisee: ' + origin));
     },
     credentials: true,
