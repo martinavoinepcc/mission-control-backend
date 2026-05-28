@@ -162,6 +162,7 @@ router.get('/:id', auth, async (req, res) => {
       slug: convo.slug,
       title: convo.title,
       createdAt: convo.createdAt,
+      createdById: convo.createdById,
       lastMessageAt: convo.lastMessageAt,
       participants: convo.participants.map((cp) => ({
         id: cp.user.id,
@@ -611,21 +612,82 @@ router.post('/:id/read', auth, async (req, res) => {
   }
 });
 
-// DELETE /conversations/:id — supprime la conversation pour tout le monde.
-// Seul un participant peut supprimer (sinon 404). Cascade supprime messages + participants.
-// Note : la convo "famille" peut être supprimée ; elle sera re-seedée vide au prochain
-// deploy backend (seed idempotent avec upsert sur slug). Intentionnel.
+// DELETE /conversations/:id — supprime la conversation pour TOUS les participants.
+// V1.4 : reserve a l'admin OU au createur (sinon 403 + suggere /leave).
+// Cascade supprime messages + participants.
 router.delete('/:id', auth, async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     const p = await ensureParticipant(req.user.id, id);
     if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
 
+    const convo = await prisma.conversation.findUnique({
+      where: { id },
+      select: { createdById: true },
+    });
+    if (!convo) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const isAdmin = req.user.role === 'ADMIN';
+    const isCreator = convo.createdById === req.user.id;
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({
+        erreur: "Seul Martin ou le createur peut supprimer une conversation. Utilise plutot /leave pour te retirer.",
+      });
+    }
+
     // Cascade delete via Prisma schema (Message + ConversationParticipant onDelete: Cascade)
     await prisma.conversation.delete({ where: { id } });
     return res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /conversations/:id error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// POST /conversations/:id/leave — l'utilisateur courant se retire d'une conversation.
+// V1.4 : alternative au DELETE pour les non-createurs / non-admins.
+// Conserve la conv meme si <2 participants restent (peut etre reactivee).
+router.post('/:id/leave', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    // Recupere le nom + autres participants avant suppression (pour la push notif)
+    const me = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { firstName: true },
+    });
+    const others = await prisma.conversationParticipant.findMany({
+      where: { conversationId: id, userId: { not: req.user.id } },
+      select: { userId: true },
+    });
+
+    await prisma.conversationParticipant.delete({
+      where: { conversationId_userId: { conversationId: id, userId: req.user.id } },
+    });
+
+    // Notif (best effort) aux autres participants
+    if (typeof sendPushToUser === 'function' && me && others.length) {
+      const authorName = me.firstName || 'Quelqu\'un';
+      const payload = {
+        title: 'Mission Control',
+        body: `${authorName} a quitte la conversation`,
+        url: `/apps/messagerie/thread/?id=${id}`,
+        tag: `convo-${id}-leave`,
+      };
+      Promise.all(
+        others.map((op) =>
+          sendPushToUser(op.userId, payload).catch((e) => {
+            console.warn('[messagerie/leave] push fail user', op.userId, e && e.message);
+          })
+        )
+      ).catch(() => {});
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /conversations/:id/leave error:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
   }
 });
