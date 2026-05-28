@@ -280,24 +280,52 @@ router.get('/:id/messages', auth, async (req, res) => {
     const where = { conversationId: id };
     if (Number.isFinite(beforeId) && beforeId > 0) where.id = { lt: beforeId };
 
+    // IMPORTANT : on n'inclut PAS imageData/audioData ici (payloads base64 lourds).
+    // Le client charge les binaires via GET /:id/messages/:msgId/image|audio en lazy
+    // (cf. V1.1). On expose juste les flags hasImage / hasAudio + meta dimensions.
     const recent = await prisma.message.findMany({
       where,
       orderBy: { id: 'desc' },
       take: limit,
-      include: {
+      select: {
+        id: true,
+        authorId: true,
+        body: true,
+        imageWidth: true,
+        imageHeight: true,
+        audioType: true,
+        audioName: true,
+        replyToId: true,
+        createdAt: true,
+        editedAt: true,
+        // Astuce Postgres : projection booleenne sans charger le blob.
+        // Prisma ne supporte pas `{ field: { _not_null: true } }` en select, donc on
+        // recupere les flags via un raw SELECT supplementaire ci-dessous.
         author: { select: { id: true, firstName: true } },
         replyTo: {
           select: {
             id: true, body: true, authorId: true, audioName: true,
-            imageData: true, audioData: true,
             author: { select: { id: true, firstName: true } },
           },
         },
-        reactions: {
-          select: { emoji: true, userId: true },
-        },
+        reactions: { select: { emoji: true, userId: true } },
       },
     });
+
+    // Calcule hasImage / hasAudio sans rapatrier les blobs (un seul raw query).
+    const msgIds = recent.map((m) => m.id);
+    const replyIds = recent.map((m) => m.replyToId).filter((x) => Number.isFinite(x));
+    const allIds = Array.from(new Set([...msgIds, ...replyIds]));
+    const flagsMap = new Map();
+    if (allIds.length > 0) {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id, ("imageData" IS NOT NULL) AS "hasImage", ("audioData" IS NOT NULL) AS "hasAudio" FROM "Message" WHERE id IN (${allIds.map((_, i) => '$' + (i + 1)).join(',')})`,
+        ...allIds
+      );
+      for (const r of rows) {
+        flagsMap.set(Number(r.id), { hasImage: !!r.hasImage, hasAudio: !!r.hasAudio });
+      }
+    }
 
     // Agrege les reactions par emoji pour chaque message
     function aggregateReactions(rxs, currentUserId) {
@@ -312,30 +340,34 @@ router.get('/:id/messages', auth, async (req, res) => {
       return Array.from(byEmoji.values());
     }
 
-    const messages = recent.reverse().map((m) => ({
-      id: m.id,
-      authorId: m.authorId,
-      authorFirstName: m.author ? m.author.firstName : null,
-      body: m.body,
-      imageData: m.imageData || null,
-      imageWidth: m.imageWidth || null,
-      imageHeight: m.imageHeight || null,
-      audioData: m.audioData || null,
-      audioType: m.audioType || null,
-      audioName: m.audioName || null,
-      replyTo: m.replyTo ? {
-        id: m.replyTo.id,
-        body: m.replyTo.body,
-        authorId: m.replyTo.authorId,
-        authorFirstName: m.replyTo.author ? m.replyTo.author.firstName : null,
-        hasImage: !!m.replyTo.imageData,
-        hasAudio: !!m.replyTo.audioData,
-        audioName: m.replyTo.audioName || null,
-      } : null,
-      reactions: aggregateReactions(m.reactions, req.user.id),
-      createdAt: m.createdAt,
-      editedAt: m.editedAt,
-    }));
+    const messages = recent.reverse().map((m) => {
+      const flags = flagsMap.get(m.id) || { hasImage: false, hasAudio: false };
+      const replyFlags = m.replyTo ? (flagsMap.get(m.replyTo.id) || { hasImage: false, hasAudio: false }) : null;
+      return {
+        id: m.id,
+        authorId: m.authorId,
+        authorFirstName: m.author ? m.author.firstName : null,
+        body: m.body,
+        hasImage: flags.hasImage,
+        imageWidth: m.imageWidth || null,
+        imageHeight: m.imageHeight || null,
+        hasAudio: flags.hasAudio,
+        audioType: m.audioType || null,
+        audioName: m.audioName || null,
+        replyTo: m.replyTo ? {
+          id: m.replyTo.id,
+          body: m.replyTo.body,
+          authorId: m.replyTo.authorId,
+          authorFirstName: m.replyTo.author ? m.replyTo.author.firstName : null,
+          hasImage: !!(replyFlags && replyFlags.hasImage),
+          hasAudio: !!(replyFlags && replyFlags.hasAudio),
+          audioName: m.replyTo.audioName || null,
+        } : null,
+        reactions: aggregateReactions(m.reactions, req.user.id),
+        createdAt: m.createdAt,
+        editedAt: m.editedAt,
+      };
+    });
 
     return res.json({ messages, hasMore: recent.length === limit });
   } catch (err) {
@@ -447,7 +479,7 @@ router.post('/:id/messages', auth, async (req, res) => {
           replyTo: {
             select: {
               id: true, body: true, authorId: true, audioName: true,
-              imageData: true, audioData: true,
+              imageData: true, audioData: true, // pour calcul hasImage/hasAudio uniquement
               author: { select: { id: true, firstName: true } },
             },
           },
@@ -514,10 +546,11 @@ router.post('/:id/messages', auth, async (req, res) => {
       authorId: msg.authorId,
       authorFirstName: msg.author ? msg.author.firstName : null,
       body: msg.body,
-      imageData: msg.imageData || null,
+      // Pas de payload base64 dans la reponse (le client lit via les routes binaires lazy).
+      hasImage: !!msg.imageData,
       imageWidth: msg.imageWidth || null,
       imageHeight: msg.imageHeight || null,
-      audioData: msg.audioData || null,
+      hasAudio: !!msg.audioData,
       audioType: msg.audioType || null,
       audioName: msg.audioName || null,
       replyTo: msg.replyTo ? {
@@ -626,6 +659,90 @@ router.post('/:id/messages/:msgId/reactions', auth, async (req, res) => {
     return res.json({ messageId: msgId, reactions: Array.from(byEmoji.values()) });
   } catch (err) {
     console.error('POST /reactions error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// Parse "data:image/xxx;base64,...." -> { mime, buffer } ou null si invalide.
+function parseDataUrl(dataUrl, expectedPrefix) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  if (!dataUrl.startsWith(expectedPrefix)) return null;
+  const match = dataUrl.match(/^data:([^;,]+)(?:;[^,]*)?,(.*)$/s);
+  if (!match) return null;
+  const mime = match[1];
+  const payload = match[2];
+  // base64 marker
+  const isB64 = /;base64,/.test(dataUrl.slice(0, dataUrl.indexOf(',') + 1));
+  try {
+    const buffer = isB64 ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf-8');
+    return { mime, buffer };
+  } catch {
+    return null;
+  }
+}
+
+// GET /conversations/:id/messages/:msgId/image
+// Sert le binaire image en lazy. Accepte JWT via header OU ?token= (img src ne peut pas
+// porter de header Authorization). Verifie participant + appartenance du message.
+router.get('/:id/messages/:msgId/image', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(msgId)) {
+      return res.status(400).json({ erreur: 'Identifiants invalides.' });
+    }
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const msg = await prisma.message.findFirst({
+      where: { id: msgId, conversationId: id },
+      select: { imageData: true },
+    });
+    if (!msg || !msg.imageData) return res.status(404).json({ erreur: 'Image introuvable.' });
+
+    const parsed = parseDataUrl(msg.imageData, 'data:image/');
+    if (!parsed) return res.status(500).json({ erreur: 'Image illisible.' });
+
+    res.setHeader('Content-Type', parsed.mime);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    if (req.query.download) {
+      res.setHeader('Content-Disposition', `attachment; filename="image-${msgId}.${(parsed.mime.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '')}"`);
+    }
+    return res.end(parsed.buffer);
+  } catch (err) {
+    console.error('GET /messages/:msgId/image error:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// GET /conversations/:id/messages/:msgId/audio
+router.get('/:id/messages/:msgId/audio', auth, async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    const msgId = Number.parseInt(req.params.msgId, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(msgId)) {
+      return res.status(400).json({ erreur: 'Identifiants invalides.' });
+    }
+    const p = await ensureParticipant(req.user.id, id);
+    if (!p) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    const msg = await prisma.message.findFirst({
+      where: { id: msgId, conversationId: id },
+      select: { audioData: true, audioName: true, audioType: true },
+    });
+    if (!msg || !msg.audioData) return res.status(404).json({ erreur: 'Audio introuvable.' });
+
+    const parsed = parseDataUrl(msg.audioData, 'data:audio/');
+    if (!parsed) return res.status(500).json({ erreur: 'Audio illisible.' });
+
+    const safeName = (msg.audioName || `audio-${msgId}.mp3`).replace(/[^A-Za-z0-9._-]/g, '_');
+    res.setHeader('Content-Type', msg.audioType || parsed.mime);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    const disposition = req.query.download ? 'attachment' : 'inline';
+    res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"`);
+    return res.end(parsed.buffer);
+  } catch (err) {
+    console.error('GET /messages/:msgId/audio error:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
   }
 });
