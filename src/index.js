@@ -16,6 +16,7 @@ const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
 const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
+const messagerieSseRoutes = require('./routes/messagerie-sse');
 const fridayRoutes = require('./routes/friday');
 const fridayPullRouter = require('./routes/friday').pullRouter;
 const heimdallRoutes = require('./routes/heimdall');
@@ -85,6 +86,10 @@ app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
+// V2.6 : SSE realtime stream pour la messagerie. Monté sur /messagerie pour
+// exposer GET /messagerie/stream (EventSource client). Garde /conversations
+// pour le reste de l'API REST messagerie (compat ascendante).
+app.use('/messagerie', messagerieSseRoutes);
 app.use('/friday', fridayRoutes);
 app.use('/heimdall', heimdallRoutes);
 
