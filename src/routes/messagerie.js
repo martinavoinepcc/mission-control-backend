@@ -61,6 +61,9 @@ async function ensureParticipant(userId, conversationId) {
 }
 
 // GET /conversations — liste
+// V1.5 fixes :
+//  - N+1 unreadCount : remplace par UN raw query groupBy.
+//  - Leak avatarData : on ne select plus le blob ; flag hasAvatar via une query separee.
 router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -73,8 +76,9 @@ router.get('/', auth, async (req, res) => {
               include: {
                 user: {
                   select: {
-                    id: true, firstName: true, username: true, avatarData: true,
+                    id: true, firstName: true, username: true,
                     avatarUpdatedAt: true,
+                    // PAS avatarData (blob lourd inutile).
                   },
                 },
               },
@@ -89,41 +93,67 @@ router.get('/', auth, async (req, res) => {
       },
     });
 
-    const results = await Promise.all(
-      participations.map(async (p) => {
-        const convo = p.conversation;
-        const unreadCount = await prisma.message.count({
-          where: {
-            conversationId: convo.id,
-            createdAt: { gt: p.lastReadAt },
-            authorId: { not: userId },
-          },
-        });
-        const lastMsg = convo.messages[0] || null;
-        return {
-          id: convo.id,
-          slug: convo.slug,
-          title: convo.title,
-          lastMessageAt: convo.lastMessageAt,
-          unreadCount,
-          participants: convo.participants.map((cp) => ({
-            id: cp.user.id,
-            firstName: cp.user.firstName,
-            hasAvatar: !!cp.user.avatarData,
-            avatarUpdatedAt: cp.user.avatarUpdatedAt,
-          })),
-          lastMessage: lastMsg
-            ? {
-                id: lastMsg.id,
-                body: lastMsg.body,
-                createdAt: lastMsg.createdAt,
-                authorId: lastMsg.authorId,
-                authorFirstName: lastMsg.author ? lastMsg.author.firstName : null,
-              }
-            : null,
-        };
-      })
-    );
+    // V1.5 N+1 fix : un seul raw query pour calculer les unread par convo.
+    // PostgreSQL : JOIN ConversationParticipant -> Message avec filtre lastReadAt + authorId.
+    const unreadMap = new Map();
+    if (participations.length > 0) {
+      const rows = await prisma.$queryRaw`
+        SELECT cp."conversationId" AS "convoId", COUNT(m.id)::int AS "unread"
+        FROM "ConversationParticipant" cp
+        LEFT JOIN "Message" m
+          ON m."conversationId" = cp."conversationId"
+         AND m."createdAt" > cp."lastReadAt"
+         AND m."authorId" != cp."userId"
+        WHERE cp."userId" = ${userId}
+        GROUP BY cp."conversationId"
+      `;
+      for (const r of rows) {
+        unreadMap.set(Number(r.convoId), Number(r.unread) || 0);
+      }
+    }
+
+    // V1.5 avatar leak fix : on collecte les userIds qui apparaissent dans les participants
+    // puis on fait UNE query qui retourne uniquement {id} pour les users qui ont un avatar.
+    const allParticipantIds = new Set();
+    for (const p of participations) {
+      for (const cp of p.conversation.participants) {
+        allParticipantIds.add(cp.user.id);
+      }
+    }
+    const avatarOwners = allParticipantIds.size > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: Array.from(allParticipantIds) }, NOT: { avatarData: null } },
+          select: { id: true },
+        })
+      : [];
+    const hasAvatarSet = new Set(avatarOwners.map((u) => u.id));
+
+    const results = participations.map((p) => {
+      const convo = p.conversation;
+      const lastMsg = convo.messages[0] || null;
+      return {
+        id: convo.id,
+        slug: convo.slug,
+        title: convo.title,
+        lastMessageAt: convo.lastMessageAt,
+        unreadCount: unreadMap.get(convo.id) || 0,
+        participants: convo.participants.map((cp) => ({
+          id: cp.user.id,
+          firstName: cp.user.firstName,
+          hasAvatar: hasAvatarSet.has(cp.user.id),
+          avatarUpdatedAt: cp.user.avatarUpdatedAt,
+        })),
+        lastMessage: lastMsg
+          ? {
+              id: lastMsg.id,
+              body: lastMsg.body,
+              createdAt: lastMsg.createdAt,
+              authorId: lastMsg.authorId,
+              authorFirstName: lastMsg.author ? lastMsg.author.firstName : null,
+            }
+          : null,
+      };
+    });
 
     results.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
     return res.json({ conversations: results });
@@ -148,7 +178,8 @@ router.get('/:id', auth, async (req, res) => {
             user: {
               select: {
                 id: true, firstName: true, username: true,
-                avatarData: true, avatarUpdatedAt: true,
+                avatarUpdatedAt: true,
+                // V1.5 : pas de blob avatarData ici.
               },
             },
           },
@@ -156,6 +187,16 @@ router.get('/:id', auth, async (req, res) => {
       },
     });
     if (!convo) return res.status(404).json({ erreur: 'Conversation introuvable.' });
+
+    // V1.5 avatar leak fix : projection booleenne via query separee {id}.
+    const partIds = convo.participants.map((cp) => cp.user.id);
+    const avatarOwners = partIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: partIds }, NOT: { avatarData: null } },
+          select: { id: true },
+        })
+      : [];
+    const hasAvatarSet = new Set(avatarOwners.map((u) => u.id));
 
     return res.json({
       id: convo.id,
@@ -168,7 +209,7 @@ router.get('/:id', auth, async (req, res) => {
         id: cp.user.id,
         firstName: cp.user.firstName,
         username: cp.user.username,
-        hasAvatar: !!cp.user.avatarData,
+        hasAvatar: hasAvatarSet.has(cp.user.id),
         avatarUpdatedAt: cp.user.avatarUpdatedAt,
       })),
     });
@@ -215,7 +256,8 @@ router.post('/', auth, async (req, res) => {
                   user: {
                     select: {
                       id: true, firstName: true, username: true,
-                      avatarData: true, avatarUpdatedAt: true,
+                      avatarUpdatedAt: true,
+                      // V1.5 : pas de blob avatarData.
                     },
                   },
                 },
@@ -232,6 +274,12 @@ router.post('/', auth, async (req, res) => {
       );
       if (match) {
         const convo = match.conversation;
+        const partIds = convo.participants.map((cp) => cp.user.id);
+        const avatarOwners = await prisma.user.findMany({
+          where: { id: { in: partIds }, NOT: { avatarData: null } },
+          select: { id: true },
+        });
+        const hasAvatarSet = new Set(avatarOwners.map((u) => u.id));
         return res.json({
           id: convo.id,
           slug: convo.slug,
@@ -241,7 +289,7 @@ router.post('/', auth, async (req, res) => {
           participants: convo.participants.map((cp) => ({
             id: cp.user.id,
             firstName: cp.user.firstName,
-            hasAvatar: !!cp.user.avatarData,
+            hasAvatar: hasAvatarSet.has(cp.user.id),
             avatarUpdatedAt: cp.user.avatarUpdatedAt,
           })),
         });
@@ -260,13 +308,21 @@ router.post('/', auth, async (req, res) => {
             user: {
               select: {
                 id: true, firstName: true,
-                avatarData: true, avatarUpdatedAt: true,
+                avatarUpdatedAt: true,
+                // V1.5 : pas de blob avatarData.
               },
             },
           },
         },
       },
     });
+
+    const partIds = convo.participants.map((cp) => cp.user.id);
+    const avatarOwners = await prisma.user.findMany({
+      where: { id: { in: partIds }, NOT: { avatarData: null } },
+      select: { id: true },
+    });
+    const hasAvatarSet = new Set(avatarOwners.map((u) => u.id));
 
     return res.json({
       id: convo.id,
@@ -276,7 +332,7 @@ router.post('/', auth, async (req, res) => {
       participants: convo.participants.map((cp) => ({
         id: cp.user.id,
         firstName: cp.user.firstName,
-        hasAvatar: !!cp.user.avatarData,
+        hasAvatar: hasAvatarSet.has(cp.user.id),
         avatarUpdatedAt: cp.user.avatarUpdatedAt,
       })),
     });
@@ -415,20 +471,21 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       return res.status(400).json({ erreur: 'Message vide (texte, image ou audio requis).' });
     }
 
-    // Valide replyToId si fourni (le message cite doit appartenir a la meme convo)
+    // V1.5 : valide replyToId si fourni. Si invalide -> 400 explicite (avant : silencieux).
     let replyToId = null;
     if (replyToIdRaw !== undefined && replyToIdRaw !== null) {
       const candidate = Number.parseInt(replyToIdRaw, 10);
-      if (Number.isFinite(candidate) && candidate > 0) {
-        const target = await prisma.message.findUnique({
-          where: { id: candidate },
-          select: { conversationId: true },
-        });
-        if (target && target.conversationId === id) {
-          replyToId = candidate;
-        }
-        // Sinon on ignore silencieusement (pas d'erreur — le message s'envoie quand meme)
+      if (!Number.isFinite(candidate) || candidate <= 0) {
+        return res.status(400).json({ erreur: 'replyToId invalide.' });
       }
+      const target = await prisma.message.findFirst({
+        where: { id: candidate, conversationId: id },
+        select: { id: true },
+      });
+      if (!target) {
+        return res.status(400).json({ erreur: 'replyTo introuvable dans cette conversation.' });
+      }
+      replyToId = candidate;
     }
     if (body.length > 4000) {
       return res.status(400).json({ erreur: 'Message trop long (max 4000 caractères).' });
@@ -466,12 +523,12 @@ router.post('/:id/messages', auth, messageLimiter, async (req, res) => {
       const declaredType = (typeof audio.type === 'string' && audio.type) ? audio.type.toLowerCase() : null;
       // Extrait le mime depuis le data URL si type non fourni
       const mimeMatch = audio.data.match(/^data:(audio\/[^;]+)/);
-      const mime = declaredType || (mimeMatch ? mimeMatch[1] : null);
-      if (!mime || !ALLOWED_AUDIO_TYPES.some(t => mime.startsWith(t.split('/')[0] + '/') && (t === mime || mime === 'audio/mpeg' || mime === 'audio/mp3'))) {
-        // Plus permissif : accepte tout audio/* sur la whitelist large
-        if (!mime || !mime.startsWith('audio/')) {
-          return res.status(400).json({ erreur: 'Type audio non supporte.' });
-        }
+      const mime = declaredType || (mimeMatch ? mimeMatch[1].toLowerCase() : null);
+      // V1.5 : whitelist stricte. Plus de fallback "tout audio/*".
+      if (!mime || !ALLOWED_AUDIO_TYPES.includes(mime)) {
+        return res.status(400).json({
+          erreur: `Type audio non supporte (${mime || 'inconnu'}). Formats acceptes : ${ALLOWED_AUDIO_TYPES.join(', ')}.`,
+        });
       }
       audioData = audio.data;
       audioType = mime;
