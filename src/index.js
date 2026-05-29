@@ -26,7 +26,12 @@ const keepAlive = require('./keep-alive');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());
+// V1.1 + V1.5 : endpoints binaires (avatars, images, audio messagerie) sont
+// charges cross-origin par le frontend (my-mission-control.com -> api.my-mission-control.com).
+// Le default helmet `cross-origin-resource-policy: same-origin` bloque le rendu
+// du <img src="https://api.../..."> meme sur 200 OK. On passe en `cross-origin`
+// (CORS reste strict en amont via la whitelist d'origines).
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // V1.5 : whitelist CORS stricte. Plus de wildcard *.onrender.com (les preview deploys
 // devront passer par FRONTEND_URL env var si besoin).
