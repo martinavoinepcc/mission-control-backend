@@ -99,6 +99,9 @@ router.get('/', auth, async (req, res) => {
     const messagerieApp = await prisma.app.findUnique({ where: { slug: 'messagerie' } });
     if (!messagerieApp) return res.json({ users: [] });
 
+    // V1.5+ : on n'expose plus avatarData (base64) ici. Le frontend fetch
+    // l'avatar via GET /users/:id/avatar (endpoint binaire) en se basant sur
+    // hasAvatar + avatarUpdatedAt (cache-busting). Payload bcp plus léger.
     const accesses = await prisma.userApp.findMany({
       where: { appId: messagerieApp.id, hasAccess: true },
       include: {
@@ -107,7 +110,7 @@ router.get('/', auth, async (req, res) => {
             id: true,
             firstName: true,
             username: true,
-            avatarData: true,
+            avatarData: true,        // lu mais pas renvoyé : sert juste à calculer hasAvatar
             avatarUpdatedAt: true,
           },
         },
@@ -119,7 +122,10 @@ router.get('/', auth, async (req, res) => {
       id: a.user.id,
       firstName: a.user.firstName,
       username: a.user.username,
-      avatarData: a.user.avatarData || null,
+      hasAvatar: !!a.user.avatarData,
+      avatarUpdatedAt: a.user.avatarUpdatedAt
+        ? a.user.avatarUpdatedAt.toISOString()
+        : null,
     }));
     return res.json({ users });
   } catch (err) {
