@@ -54,32 +54,32 @@ enum ProgressStatus {
 }
 
 model User {
-  id                         Int                       @id @default(autoincrement())
-  email                      String                    @unique
-  username                   String?                   @unique
-  firstName                  String
-  password                   String
-  role                       Role                      @default(MEMBER)
-  profile                    Profile                   @default(ADULT)
-  mustChangePassword         Boolean                   @default(false)
-  avatarData                 String?                   @db.Text   // data:image/webp;base64,... (Phase 3)
-  avatarUpdatedAt            DateTime?
-  createdAt                  DateTime                  @default(now())
-  updatedAt                  DateTime                  @updatedAt
-  apps                       UserApp[]
-  modules                    ModuleAccess[]
-  progress                   Progress[]
-  badges                     UserBadge[]
-  improvSessions             ImprovSession[]
-  kazChatSessions            KazChatSession[]
-  pushSubscriptions          PushSubscription[]
-  messagerieParticipations   ConversationParticipant[]
-  messagerieMessages         Message[]
-  messageReactions           MessageReaction[]
-  messageReads               MessageRead[]
-  fridayConversations        FridayConversation[]
-  dropAccesses               DropAccess[]
-  dropScores                 DropScore[]
+  id                       Int                       @id @default(autoincrement())
+  email                    String                    @unique
+  username                 String?                   @unique
+  firstName                String
+  password                 String
+  role                     Role                      @default(MEMBER)
+  profile                  Profile                   @default(ADULT)
+  mustChangePassword       Boolean                   @default(false)
+  avatarData               String?                   @db.Text // data:image/webp;base64,... (Phase 3)
+  avatarUpdatedAt          DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  apps                     UserApp[]
+  modules                  ModuleAccess[]
+  progress                 Progress[]
+  badges                   UserBadge[]
+  improvSessions           ImprovSession[]
+  kazChatSessions          KazChatSession[]
+  pushSubscriptions        PushSubscription[]
+  messagerieParticipations ConversationParticipant[]
+  messagerieMessages       Message[]
+  messageReactions         MessageReaction[]
+  messageReads             MessageRead[]
+  fridayConversations      FridayConversation[]
+  dropAccesses             DropAccess[]
+  dropScores               DropScore[]
 }
 
 model App {
@@ -127,7 +127,7 @@ model Module {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   lessons     Lesson[]
-  accesses   ModuleAccess[]
+  accesses    ModuleAccess[]
 }
 
 model ModuleAccess {
@@ -163,21 +163,21 @@ model Lesson {
 }
 
 model Progress {
-  id            Int             @id @default(autoincrement())
-  userId        Int
-  lessonId      Int
-  status        ProgressStatus  @default(LOCKED)
-  stars         Int             @default(0)
-  hintsUsed     Int             @default(0)
-  attempts      Int             @default(0)
-  xpEarned      Int             @default(0)
-  savedCode     String?
-  firstDoneAt   DateTime?
-  lastPlayedAt  DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lesson        Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  id           Int            @id @default(autoincrement())
+  userId       Int
+  lessonId     Int
+  status       ProgressStatus @default(LOCKED)
+  stars        Int            @default(0)
+  hintsUsed    Int            @default(0)
+  attempts     Int            @default(0)
+  xpEarned     Int            @default(0)
+  savedCode    String?
+  firstDoneAt  DateTime?
+  lastPlayedAt DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson       Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
   @@index([userId])
@@ -254,11 +254,11 @@ model ImprovConstraint {
 }
 
 model ImprovSession {
-  id        Int             @id @default(autoincrement())
+  id        Int           @id @default(autoincrement())
   userId    Int
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   mode      String
-  createdAt DateTime        @default(now())
+  createdAt DateTime      @default(now())
   rounds    ImprovRound[]
 
   @@index([userId])
@@ -308,15 +308,15 @@ model KazChatMessage {
 // ============ PUSH NOTIFICATIONS (Web Push + futur Expo) =============
 
 model PushSubscription {
-  id          Int       @id @default(autoincrement())
-  userId      Int
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint    String    @unique
-  p256dh      String?
-  auth        String?
-  userAgent   String?
-  createdAt   DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String   @unique
+  p256dh     String?
+  auth       String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
 
   @@index([userId])
 }
@@ -344,9 +344,9 @@ model FridayMessage {
   id             Int                @id @default(autoincrement())
   conversationId Int
   conversation   FridayConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String             // "user" | "assistant" | "system"
+  role           String // "user" | "assistant" | "system"
   content        String             @db.Text
-  metadata       Json?              // raw FRIDAY response, tool calls, sources, etc.
+  metadata       Json? // raw FRIDAY response, tool calls, sources, etc.
   errorMessage   String?            @db.Text
   createdAt      DateTime           @default(now())
 
@@ -361,7 +361,7 @@ model FridayPendingMessage {
   id             Int       @id @default(autoincrement())
   userId         Int
   conversationId Int
-  payload        Json      // user, conversation, message, history, context — ce que FRIDAY reçoit
+  payload        Json // user, conversation, message, history, context — ce que FRIDAY reçoit
   claimedAt      DateTime?
   respondedAt    DateTime?
   errorMessage   String?   @db.Text
@@ -373,14 +373,14 @@ model FridayPendingMessage {
 // ============ MESSAGERIE FAMILIALE =============
 
 model Conversation {
-  id             Int                       @id @default(autoincrement())
-  slug           String?                   @unique
-  title          String?
-  createdById    Int?
-  createdAt      DateTime                  @default(now())
-  lastMessageAt  DateTime                  @default(now())
-  participants   ConversationParticipant[]
-  messages       Message[]
+  id            Int                       @id @default(autoincrement())
+  slug          String?                   @unique
+  title         String?
+  createdById   Int?
+  createdAt     DateTime                  @default(now())
+  lastMessageAt DateTime                  @default(now())
+  participants  ConversationParticipant[]
+  messages      Message[]
 
   @@index([lastMessageAt])
 }
@@ -399,27 +399,27 @@ model ConversationParticipant {
 }
 
 model Message {
-  id             Int          @id @default(autoincrement())
+  id             Int               @id @default(autoincrement())
   conversationId Int
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   authorId       Int
-  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  body           String       @db.Text
-  imageData      String?      @db.Text    // data:image/webp;base64,... (Phase 3 image attachments)
+  author         User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body           String            @db.Text
+  imageData      String?           @db.Text // data:image/webp;base64,... (Phase 3 image attachments)
   imageWidth     Int?
   imageHeight    Int?
-  audioData      String?      @db.Text    // data:audio/mpeg;base64,... (audio attachments)
-  audioType      String?                  // mime: audio/mpeg, audio/mp3, etc.
-  audioName      String?                  // filename original (pour download)
+  audioData      String?           @db.Text // data:audio/mpeg;base64,... (audio attachments)
+  audioType      String? // mime: audio/mpeg, audio/mp3, etc.
+  audioName      String? // filename original (pour download)
   // Reply-to (pour repondre a un message specifique)
   replyToId      Int?
-  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        Message[]    @relation("MessageReply")
+  replyTo        Message?          @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]         @relation("MessageReply")
   // Reactions (emoji)
   reactions      MessageReaction[]
   // V2.7 : read receipts par message (qui a lu, quand).
   reads          MessageRead[]
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime          @default(now())
   editedAt       DateTime?
   // V2.8 : soft-delete d'un message. Si != null, le body / blobs sont vides
   // et le client affiche "Message supprime".
@@ -465,19 +465,19 @@ model MessageReaction {
 // Le user peut ouvrir /drops/:slug si il a un DropAccess valide.
 
 model Drop {
-  id            Int          @id @default(autoincrement())
-  slug          String       @unique  // ex: 'spelling-quiz-v1'
-  title         String
-  description   String?      @db.Text
-  htmlContent   String?      @db.Text  // mockup HTML standalone
-  iconEmoji     String?      @default("📦")
-  realm         String       @default("FAMILY")  // FAMILY | EDUCATIF | WORK
-  status        String       @default("PENDING")  // PENDING | APPROVED | DISABLED
-  source        String?      // 'friday' | 'manual' | etc.
-  createdAt     DateTime     @default(now())
-  approvedAt    DateTime?
-  updatedAt     DateTime     @updatedAt
-  accesses      DropAccess[]
+  id          Int          @id @default(autoincrement())
+  slug        String       @unique // ex: 'spelling-quiz-v1'
+  title       String
+  description String?      @db.Text
+  htmlContent String?      @db.Text // mockup HTML standalone
+  iconEmoji   String?      @default("📦")
+  realm       String       @default("FAMILY") // FAMILY | EDUCATIF | WORK
+  status      String       @default("PENDING") // PENDING | APPROVED | DISABLED
+  source      String? // 'friday' | 'manual' | etc.
+  createdAt   DateTime     @default(now())
+  approvedAt  DateTime?
+  updatedAt   DateTime     @updatedAt
+  accesses    DropAccess[]
 
   @@index([status, createdAt])
 }
@@ -516,4 +516,195 @@ model DropScore {
 
   @@index([dropSlug, mode, xp])
   @@index([userId, dropSlug, mode, xp])
+}
+
+// ============ CHANTIER CHALET — gestion de construction =============
+// Module de suivi de la reconstruction du chalet (396 chemin du lac Mekinac,
+// Trois-Rives). Un projet -> corps de metier, contacts, jalons (pre-construction
+// + construction), soumissions (rattachees a un jalon + un contact), depenses,
+// documents (plans/permis/photos, stockes en base64 dans fileData pour l'instant,
+// migrables vers un bucket via fileUrl plus tard). Additif : ne touche a rien.
+
+enum ChantierPhase {
+  PRE_CONSTRUCTION
+  CONSTRUCTION
+}
+
+enum JalonStatus {
+  A_VENIR
+  EN_COURS
+  COMPLETE
+  EN_RETARD
+  BLOQUE
+}
+
+enum SoumissionStatus {
+  RECUE
+  EN_ANALYSE
+  ACCEPTEE
+  REFUSEE
+}
+
+enum DepenseType {
+  DEPOT
+  PARTIEL
+  FINAL
+  EXTRA
+}
+
+enum ChantierDocKind {
+  PLAN
+  PERMIS
+  CONTRAT
+  PHOTO
+  RECU
+  AUTRE
+}
+
+model ChantierProject {
+  id          Int           @id @default(autoincrement())
+  slug        String        @unique @default("chalet")
+  name        String
+  address     String?
+  budgetTotal Int           @default(0) // dollars entiers
+  startDate   DateTime?
+  status      String        @default("EN_COURS")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  trades      Trade[]
+  contacts    Contact[]
+  jalons      Jalon[]
+  soumissions Soumission[]
+  depenses    Depense[]
+  docs        ChantierDoc[]
+}
+
+model Trade {
+  id          Int             @id @default(autoincrement())
+  projectId   Int
+  project     ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  icon        String?         @default("hammer")
+  color       String?         @default("#BA7517")
+  budgetPrevu Int             @default(0)
+  order       Int             @default(0)
+  createdAt   DateTime        @default(now())
+  jalons      Jalon[]
+  soumissions Soumission[]
+  depenses    Depense[]
+  docs        ChantierDoc[]
+
+  @@index([projectId, order])
+}
+
+model Contact {
+  id          Int             @id @default(autoincrement())
+  projectId   Int
+  project     ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  company     String
+  person      String?
+  phone       String?
+  email       String?
+  website     String?
+  trade       String? // metier libre (texte)
+  status      String          @default("PRESSENTI") // PRESSENTI | SOUMISSION_RECUE | RETENU | ECARTE
+  notes       String?         @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  soumissions Soumission[]
+
+  @@index([projectId])
+}
+
+model Jalon {
+  id          Int             @id @default(autoincrement())
+  projectId   Int
+  project     ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradeId     Int?
+  trade       Trade?          @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  phase       ChantierPhase   @default(CONSTRUCTION)
+  name        String
+  description String?         @db.Text
+  status      JalonStatus     @default(A_VENIR)
+  progress    Int             @default(0) // 0-100
+  dueDate     DateTime?
+  doneDate    DateTime?
+  order       Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  soumissions Soumission[]
+  depenses    Depense[]
+  docs        ChantierDoc[]
+
+  @@index([projectId, phase, order])
+}
+
+model Soumission {
+  id         Int              @id @default(autoincrement())
+  projectId  Int
+  project    ChantierProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradeId    Int?
+  trade      Trade?           @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  jalonId    Int?
+  jalon      Jalon?           @relation(fields: [jalonId], references: [id], onDelete: SetNull)
+  contactId  Int?
+  contact    Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  label      String?
+  amount     Int              @default(0) // dollars
+  status     SoumissionStatus @default(RECUE)
+  receivedAt DateTime?
+  notes      String?          @db.Text
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  depenses   Depense[]
+  docs       ChantierDoc[]
+
+  @@index([projectId])
+  @@index([jalonId])
+  @@index([tradeId])
+}
+
+model Depense {
+  id           Int             @id @default(autoincrement())
+  projectId    Int
+  project      ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradeId      Int?
+  trade        Trade?          @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  jalonId      Int?
+  jalon        Jalon?          @relation(fields: [jalonId], references: [id], onDelete: SetNull)
+  soumissionId Int?
+  soumission   Soumission?     @relation(fields: [soumissionId], references: [id], onDelete: SetNull)
+  label        String?
+  amount       Int             @default(0)
+  type         DepenseType     @default(PARTIEL)
+  method       String?
+  paidAt       DateTime?
+  notes        String?         @db.Text
+  createdAt    DateTime        @default(now())
+
+  @@index([projectId])
+}
+
+model ChantierDoc {
+  id           Int             @id @default(autoincrement())
+  projectId    Int
+  project      ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradeId      Int?
+  trade        Trade?          @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  jalonId      Int?
+  jalon        Jalon?          @relation(fields: [jalonId], references: [id], onDelete: SetNull)
+  soumissionId Int?
+  soumission   Soumission?     @relation(fields: [soumissionId], references: [id], onDelete: SetNull)
+  kind         ChantierDocKind @default(AUTRE)
+  title        String
+  fileData     String?         @db.Text // data:...;base64,... (photos compressees / petits PDF)
+  fileUrl      String? // alternative : lien externe (migration bucket future)
+  mimeType     String?
+  width        Int?
+  height       Int?
+  takenAt      DateTime?
+  createdAt    DateTime        @default(now())
+
+  @@index([projectId])
+  @@index([jalonId])
 }

@@ -66,6 +66,15 @@ const APPS = [
     realm: 'FAMILY',
   },
   {
+    slug: 'chantier',
+    name: 'Chantier Chalet',
+    description: 'Gestion de la reconstruction — jalons, soumissions, contacts, budget, photos.',
+    icon: 'helmet-safety',
+    color: '#D97706',
+    isMockup: false,
+    realm: 'FAMILY',
+  },
+  {
     slug: 'assistant',
     name: 'BIFROST',
     description: 'Pont vers HEIMDALL — cockpit Aion UI, agents FRIDAY, drops modules.',
@@ -193,8 +202,8 @@ async function main() {
     });
   }
 
-  // Maison + Chalet : Martin + Marie-Josée (parents)
-  for (const slug of ['maison', 'chalet']) {
+  // Maison + Chalet + Chantier : Martin + Marie-Josée (parents)
+  for (const slug of ['maison', 'chalet', 'chantier']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
@@ -237,7 +246,110 @@ async function main() {
   // Convo seed "Famille" avec les 4 membres + un welcome message de Martin
   await seedFamilyConversation(prisma, createdUsers);
 
+  // Chantier Chalet — projet + metiers + pre-jalons + photos du terrain
+  await seedChantier(prisma);
+
   console.log('✅ Seed terminé. Aucun module backend — MCreator Academy est full-frontend.');
+}
+
+// ============ CHANTIER CHALET SEED ============
+// Idempotent : le projet est upsert (jamais clobber). Metiers / jalons / photos
+// ne sont seedes QUE si le projet est vierge (count === 0), pour ne pas ecraser
+// les ajouts/suppressions de Martin.
+
+const CHANTIER_TRADES = [
+  'Excavation', 'Fondation', 'Charpente', 'Toiture', 'Fenêtres et portes',
+  'Plomberie', 'Électricité', 'Isolation', 'Gypse et tirage de joints',
+  'Planchers', 'Armoires et cuisine', 'Peinture', 'Finition intérieure', 'Paysagement',
+];
+
+// Pre-jalons phase PRE_CONSTRUCTION (order 1..11). Voir memoire projet + regles
+// municipales Trois-Rives / MRC Mekinac + bande riveraine (lac Mekinac).
+const CHANTIER_PRE_JALONS = [
+  { name: 'Plan 1 — consultation', description: 'Première version des plans avec l\'architecte / designer.' },
+  { name: 'Plan modifié', description: 'Itération des plans après commentaires.' },
+  { name: 'Plan final', description: 'Version finale déposée pour permis.' },
+  { name: 'Arpentage / certificat de localisation', description: 'Arpenteur-géomètre.' },
+  { name: 'Test de sol / étude géotechnique', description: 'Capacité portante du sol.' },
+  { name: 'Abattage d\'arbres / déboisement', description: 'Permis requis — attention bande riveraine du lac.' },
+  { name: 'Permis de construction (Trois-Rives / MRC)', description: 'Inspecteur municipal Trois-Rives / MRC de Mékinac.' },
+  { name: 'Certificat d\'autorisation bande riveraine', description: 'Si intervention près du lac Mékinac (PPRLPI). À confirmer avec la municipalité.' },
+  { name: 'Installation septique (Q-2, r.22)', description: 'Permis d\'installation d\'un système de traitement des eaux usées.' },
+  { name: 'Puits / captage d\'eau', description: 'Permis de forage / captage d\'eau potable.' },
+  { name: 'Implantation / piquetage', description: 'Localisation exacte du bâtiment sur le terrain.' },
+];
+
+// Photos du terrain deja presentes dans le repo frontend (public/images/*).
+// Seedees comme docs PHOTO via fileUrl (pas de base64 en DB pour celles-la).
+const CHANTIER_SEED_PHOTOS = [
+  { title: 'Terrain — vue du site 1', file: 'Site1.jpeg' },
+  { title: 'Terrain — vue du site 2', file: 'Site2.jpeg' },
+  { title: 'Terrain — vue du site 3', file: 'Site3.jpeg' },
+  { title: 'Terrain — bord du lac', file: 'Shore.jpeg' },
+  { title: 'Terrain — façade', file: 'Front.jpeg' },
+  { title: 'Terrain — le lac', file: 'lake.jpeg' },
+];
+
+async function seedChantier(prisma) {
+  console.log('🏗️  Seed Chantier Chalet...');
+
+  const project = await prisma.chantierProject.upsert({
+    where: { slug: 'chalet' },
+    update: {}, // jamais clobber — Martin controle budget/adresse/statut apres coup
+    create: {
+      slug: 'chalet',
+      name: 'Chantier Chalet',
+      address: '396 chemin du lac Mékinac, Trois-Rives',
+      budgetTotal: 0,
+      status: 'EN_COURS',
+    },
+  });
+
+  const tradeCount = await prisma.trade.count({ where: { projectId: project.id } });
+  if (tradeCount === 0) {
+    for (let i = 0; i < CHANTIER_TRADES.length; i++) {
+      await prisma.trade.create({
+        data: { projectId: project.id, name: CHANTIER_TRADES[i], order: i + 1, icon: 'hammer', color: '#D97706' },
+      });
+    }
+    console.log(`✓ ${CHANTIER_TRADES.length} corps de métier seedés`);
+  }
+
+  const jalonCount = await prisma.jalon.count({ where: { projectId: project.id } });
+  if (jalonCount === 0) {
+    for (let i = 0; i < CHANTIER_PRE_JALONS.length; i++) {
+      const j = CHANTIER_PRE_JALONS[i];
+      await prisma.jalon.create({
+        data: {
+          projectId: project.id,
+          name: j.name,
+          description: j.description,
+          phase: 'PRE_CONSTRUCTION',
+          status: 'A_VENIR',
+          order: i + 1,
+        },
+      });
+    }
+    console.log(`✓ ${CHANTIER_PRE_JALONS.length} pré-jalons seedés`);
+  }
+
+  const photoCount = await prisma.chantierDoc.count({ where: { projectId: project.id } });
+  if (photoCount === 0) {
+    for (const p of CHANTIER_SEED_PHOTOS) {
+      await prisma.chantierDoc.create({
+        data: {
+          projectId: project.id,
+          kind: 'PHOTO',
+          title: p.title,
+          fileUrl: `https://my-mission-control.com/images/${p.file}`,
+          mimeType: 'image/jpeg',
+        },
+      });
+    }
+    console.log(`✓ ${CHANTIER_SEED_PHOTOS.length} photos du terrain seedées`);
+  }
+
+  console.log('✓ Chantier Chalet prêt');
 }
 
 // ============ MESSAGERIE SEED ============
