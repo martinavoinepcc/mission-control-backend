@@ -685,6 +685,22 @@ model Depense {
   @@index([projectId])
 }
 
+// ============ BUDGET FAMILIAL =============
+// Etat partage du budget familial (Martin + Marie-Josee). Un seul blob JSON
+// versionne par updatedAt/updatedBy — le frontend (public/budget-app.html)
+// charge et sauvegarde l'etat complet (revenus, depenses, previsions).
+// Les donnees par defaut vivent dans src/routes/budget.js (jamais dans le
+// HTML public). Additif : ne touche a rien d'existant.
+
+model BudgetState {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique @default("famille")
+  data      Json
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model ChantierDoc {
   id           Int             @id @default(autoincrement())
   projectId    Int

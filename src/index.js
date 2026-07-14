@@ -15,6 +15,7 @@ const kazRoutes = require('./routes/kaz');
 const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
 const chantierRoutes = require('./routes/chantier');
+const budgetRoutes = require('./routes/budget');
 const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
 const messagerieSseRoutes = require('./routes/messagerie-sse');
@@ -91,6 +92,7 @@ app.use('/kaz', kazRoutes);
 app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/chantier', chantierRoutes);
+app.use('/budget', budgetRoutes);
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
 // V2.6 : SSE realtime stream pour la messagerie. Monté sur /messagerie pour

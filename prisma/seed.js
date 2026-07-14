@@ -75,6 +75,15 @@ const APPS = [
     realm: 'FAMILY',
   },
   {
+    slug: 'budget',
+    name: 'Budget familial',
+    description: 'Revenus, dépenses, prévisions et calculateur d\'hypothèque — le portrait financier de la famille.',
+    icon: 'sack-dollar',
+    color: '#0C6B4F',
+    isMockup: false,
+    realm: 'FAMILY',
+  },
+  {
     slug: 'assistant',
     name: 'BIFROST',
     description: 'Pont vers HEIMDALL — cockpit Aion UI, agents FRIDAY, drops modules.',
@@ -202,8 +211,8 @@ async function main() {
     });
   }
 
-  // Maison + Chalet + Chantier : Martin + Marie-Josée (parents)
-  for (const slug of ['maison', 'chalet', 'chantier']) {
+  // Maison + Chalet + Chantier + Budget : Martin + Marie-Josée (parents)
+  for (const slug of ['maison', 'chalet', 'chantier', 'budget']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
