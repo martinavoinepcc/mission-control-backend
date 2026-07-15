@@ -7,9 +7,13 @@
 // IMPORTANT : les donnees par defaut (montants reels de la famille) vivent ICI,
 // derriere l'auth — jamais dans le HTML public du frontend.
 //
-// - GET    /budget  -> { data, updatedAt, updatedBy } (defaults si DB vierge)
-// - PUT    /budget  -> { data } sauvegarde l'etat complet
-// - DELETE /budget  -> reset aux defaults (le prochain GET les retourne)
+// - GET    /budget          -> { data, updatedAt, updatedBy } (modele de base
+//                              ou defaults du fichier si DB vierge)
+// - PUT    /budget          -> { data } sauvegarde l'etat complet
+// - POST   /budget/baseline -> fige l'etat courant (ou body.data) comme
+//                              « modele de base » (snapshot slug 'baseline')
+// - DELETE /budget          -> reset au modele de base s'il existe, sinon
+//                              aux defaults du fichier d'origine
 
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -29,6 +33,7 @@ function adultOnly(req, res, next) {
 router.use(auth, adultOnly);
 
 const SLUG = 'famille';
+const BASELINE_SLUG = 'baseline'; // modele de base defini par Martin (snapshot)
 
 /* ───────── Donnees par defaut (source : Budget_Dépense_annuel.ods) ─────────
    Champs par depense :
@@ -130,6 +135,10 @@ router.get('/', async (req, res) => {
   try {
     const row = await prisma.budgetState.findUnique({ where: { slug: SLUG } });
     if (!row) {
+      const base = await prisma.budgetState.findUnique({ where: { slug: BASELINE_SLUG } });
+      if (base) {
+        return res.json({ data: base.data, updatedAt: null, updatedBy: null, isDefault: true, fromBaseline: true });
+      }
       return res.json({ data: DEFAULT_STATE, updatedAt: null, updatedBy: null, isDefault: true });
     }
     return res.json({ data: row.data, updatedAt: row.updatedAt, updatedBy: row.updatedBy, isDefault: false });
@@ -159,12 +168,38 @@ router.put('/', async (req, res) => {
   }
 });
 
-// DELETE /budget — reset : efface l'etat sauvegarde, le prochain GET
-// retourne les donnees par defaut du fichier d'origine.
+// POST /budget/baseline — fige un snapshot comme « modele de base ».
+// Prend body.data si fourni (etat courant du client), sinon l'etat sauvegarde.
+router.post('/baseline', async (req, res) => {
+  try {
+    let data = req.body && req.body.data;
+    if (!data) {
+      const cur = await prisma.budgetState.findUnique({ where: { slug: SLUG } });
+      data = cur && cur.data;
+    }
+    if (!data || typeof data !== 'object' || !Array.isArray(data.depenses) || !Array.isArray(data.revenus)) {
+      return res.status(400).json({ erreur: 'Aucun budget a figer comme modele.' });
+    }
+    const updatedBy = (req.user && req.user.firstName) || null;
+    const row = await prisma.budgetState.upsert({
+      where: { slug: BASELINE_SLUG },
+      update: { data, updatedBy },
+      create: { slug: BASELINE_SLUG, data, updatedBy },
+    });
+    return res.json({ ok: true, updatedAt: row.updatedAt, updatedBy: row.updatedBy });
+  } catch (err) {
+    console.error('POST /budget/baseline:', err);
+    return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
+  }
+});
+
+// DELETE /budget — reset : efface l'etat courant. Le budget revient au
+// modele de base s'il existe, sinon aux donnees du fichier d'origine.
 router.delete('/', async (req, res) => {
   try {
     await prisma.budgetState.deleteMany({ where: { slug: SLUG } });
-    return res.json({ ok: true, data: DEFAULT_STATE });
+    const base = await prisma.budgetState.findUnique({ where: { slug: BASELINE_SLUG } });
+    return res.json({ ok: true, data: base ? base.data : DEFAULT_STATE, fromBaseline: !!base });
   } catch (err) {
     console.error('DELETE /budget:', err);
     return res.status(500).json({ erreur: 'Erreur interne du serveur.' });
