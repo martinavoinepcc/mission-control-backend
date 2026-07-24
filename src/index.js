@@ -73,7 +73,7 @@ app.use('/api/friday', fridayPullRouter);
 app.use('/api/heimdall', heimdallInboundRouter);
 
 // 8 MB : image webp ~1.5 MB + audio MP3 jusqu'a ~5 MB (base64 + overhead JSON).
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '80mb' }));
 
 app.get('/', (req, res) => {
   res.json({ service: 'mission-control-api', status: 'ok', version: '0.1.0' });
