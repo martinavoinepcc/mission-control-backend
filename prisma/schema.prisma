@@ -577,6 +577,7 @@ model ChantierProject {
   soumissions Soumission[]
   depenses    Depense[]
   docs        ChantierDoc[]
+  debourses   DebourseBanque[]
 }
 
 model Trade {
@@ -606,6 +607,10 @@ model Contact {
   phone       String?
   email       String?
   website     String?
+  facebook    String?
+  instagram   String?
+  address     String?
+  rbq         String? // no de licence RBQ (entrepreneurs Quebec)
   trade       String? // metier libre (texte)
   status      String          @default("PRESSENTI") // PRESSENTI | SOUMISSION_RECUE | RETENU | ECARTE
   notes       String?         @db.Text
@@ -683,6 +688,25 @@ model Depense {
   createdAt    DateTime        @default(now())
 
   @@index([projectId])
+}
+
+// Deboursés progressifs de la banque (financement construction).
+// Chaque déboursé = une tranche versée par la banque à une étape du chantier.
+model DebourseBanque {
+  id         Int             @id @default(autoincrement())
+  projectId  Int
+  project    ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label      String // ex. "Déboursé 2 — toit fermé"
+  amount     Int             @default(0) // dollars entiers
+  condition  String?         @db.Text // condition exigée par la banque
+  datePrevue DateTime?
+  dateRecu   DateTime?
+  recu       Boolean         @default(false)
+  order      Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([projectId, order])
 }
 
 // ============ BUDGET FAMILIAL =============
