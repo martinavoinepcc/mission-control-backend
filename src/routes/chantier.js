@@ -89,12 +89,13 @@ function jalonProgress(j) {
 router.get('/overview', async (req, res) => {
   try {
     const project = await getProject();
-    const [trades, jalons, soumissions, depenses, contactsCount, docs] = await Promise.all([
+    const [trades, jalons, soumissions, depenses, contactsCount, debourses, docs] = await Promise.all([
       prisma.trade.findMany({ where: { projectId: project.id }, orderBy: { order: 'asc' } }),
       prisma.jalon.findMany({ where: { projectId: project.id }, orderBy: [{ order: 'asc' }, { dueDate: 'asc' }] }),
       prisma.soumission.findMany({ where: { projectId: project.id } }),
       prisma.depense.findMany({ where: { projectId: project.id } }),
       prisma.contact.count({ where: { projectId: project.id } }),
+      prisma.debourseBanque.findMany({ where: { projectId: project.id } }),
       prisma.chantierDoc.findMany({
         where: { projectId: project.id, kind: 'PHOTO' },
         orderBy: { createdAt: 'desc' },
@@ -158,6 +159,12 @@ router.get('/overview', async (req, res) => {
         engage,
         paye,
         restant,
+      },
+      banque: {
+        totalPrevu: debourses.reduce((acc, d) => acc + (d.amount || 0), 0),
+        totalRecu: debourses.filter((d) => d.recu).reduce((acc, d) => acc + (d.amount || 0), 0),
+        count: debourses.length,
+        countRecu: debourses.filter((d) => d.recu).length,
       },
       globalProgress,
       counts: {
@@ -287,7 +294,7 @@ router.get('/contacts', async (req, res) => {
 router.post('/contacts', async (req, res) => {
   try {
     const project = await getProject();
-    const { company, person, phone, email, website, trade, status, notes } = req.body || {};
+    const { company, person, phone, email, website, facebook, instagram, address, rbq, trade, status, notes } = req.body || {};
     if (!company || !String(company).trim()) return res.status(400).json({ erreur: "Le nom de l'entreprise est requis." });
     const contact = await prisma.contact.create({
       data: {
@@ -297,6 +304,10 @@ router.post('/contacts', async (req, res) => {
         phone: phone ? String(phone) : null,
         email: email ? String(email) : null,
         website: website ? String(website) : null,
+        facebook: facebook ? String(facebook) : null,
+        instagram: instagram ? String(instagram) : null,
+        address: address ? String(address) : null,
+        rbq: rbq ? String(rbq) : null,
         trade: trade ? String(trade) : null,
         status: status ? String(status) : 'PRESSENTI',
         notes: notes ? String(notes) : null,
@@ -312,7 +323,7 @@ router.post('/contacts', async (req, res) => {
 router.patch('/contacts/:id', async (req, res) => {
   try {
     const id = toInt(req.params.id);
-    const { company, person, phone, email, website, trade, status, notes } = req.body || {};
+    const { company, person, phone, email, website, facebook, instagram, address, rbq, trade, status, notes } = req.body || {};
     const contact = await prisma.contact.update({
       where: { id },
       data: {
@@ -321,6 +332,10 @@ router.patch('/contacts/:id', async (req, res) => {
         ...(phone !== undefined ? { phone: phone ? String(phone) : null } : {}),
         ...(email !== undefined ? { email: email ? String(email) : null } : {}),
         ...(website !== undefined ? { website: website ? String(website) : null } : {}),
+        ...(facebook !== undefined ? { facebook: facebook ? String(facebook) : null } : {}),
+        ...(instagram !== undefined ? { instagram: instagram ? String(instagram) : null } : {}),
+        ...(address !== undefined ? { address: address ? String(address) : null } : {}),
+        ...(rbq !== undefined ? { rbq: rbq ? String(rbq) : null } : {}),
         ...(trade !== undefined ? { trade: trade ? String(trade) : null } : {}),
         ...(status !== undefined ? { status: String(status) } : {}),
         ...(notes !== undefined ? { notes: notes ? String(notes) : null } : {}),
@@ -630,9 +645,9 @@ router.post('/docs', async (req, res) => {
     const { kind, title, fileData, fileUrl, mimeType, width, height, takenAt, jalonId, tradeId, soumissionId } = req.body || {};
     if (!title || !String(title).trim()) return res.status(400).json({ erreur: 'Le titre du document est requis.' });
     if (!fileData && !fileUrl) return res.status(400).json({ erreur: 'Un fichier ou un lien est requis.' });
-    // Limite base64 ~7 MB (express.json limit 8mb)
-    if (fileData && String(fileData).length > 7 * 1024 * 1024) {
-      return res.status(413).json({ erreur: 'Fichier trop volumineux (max ~5 Mo).' });
+    // Limite base64 ~60 MB (express.json limit 80mb) — permet les plans PDF complets
+    if (fileData && String(fileData).length > 60 * 1024 * 1024) {
+      return res.status(413).json({ erreur: 'Fichier trop volumineux (max ~40 Mo).' });
     }
     const doc = await prisma.chantierDoc.create({
       data: {
@@ -685,6 +700,73 @@ router.delete('/docs/:id', async (req, res) => {
   } catch (e) {
     console.error('chantier/docs DELETE', e);
     res.status(500).json({ erreur: 'Erreur lors de la suppression du document.' });
+  }
+});
+
+// ============ DEBOURSES BANQUE (financement progressif) ============
+
+router.get('/debourses', async (req, res) => {
+  const project = await getProject();
+  const debourses = await prisma.debourseBanque.findMany({
+    where: { projectId: project.id },
+    orderBy: [{ order: 'asc' }, { datePrevue: 'asc' }],
+  });
+  res.json({ debourses });
+});
+
+router.post('/debourses', async (req, res) => {
+  try {
+    const project = await getProject();
+    const { label, amount, condition, datePrevue, order } = req.body || {};
+    if (!label || !String(label).trim()) return res.status(400).json({ erreur: 'Le nom du déboursé est requis.' });
+    const max = await prisma.debourseBanque.aggregate({ where: { projectId: project.id }, _max: { order: true } });
+    const debourse = await prisma.debourseBanque.create({
+      data: {
+        projectId: project.id,
+        label: String(label).trim(),
+        amount: toInt(amount),
+        condition: condition ? String(condition) : null,
+        datePrevue: parseDate(datePrevue),
+        order: order !== undefined ? toInt(order) : (max._max.order || 0) + 1,
+      },
+    });
+    res.status(201).json({ debourse });
+  } catch (e) {
+    console.error('chantier/debourses POST', e);
+    res.status(500).json({ erreur: 'Erreur lors de la création du déboursé banque.' });
+  }
+});
+
+router.patch('/debourses/:id', async (req, res) => {
+  try {
+    const id = toInt(req.params.id);
+    const { label, amount, condition, datePrevue, dateRecu, recu, order } = req.body || {};
+    const debourse = await prisma.debourseBanque.update({
+      where: { id },
+      data: {
+        ...(label !== undefined ? { label: String(label).trim() } : {}),
+        ...(amount !== undefined ? { amount: toInt(amount) } : {}),
+        ...(condition !== undefined ? { condition: condition ? String(condition) : null } : {}),
+        ...(datePrevue !== undefined ? { datePrevue: parseDate(datePrevue) } : {}),
+        ...(dateRecu !== undefined ? { dateRecu: parseDate(dateRecu) } : {}),
+        ...(recu !== undefined ? { recu: !!recu, ...(recu && !dateRecu ? { dateRecu: new Date() } : {}) } : {}),
+        ...(order !== undefined ? { order: toInt(order) } : {}),
+      },
+    });
+    res.json({ debourse });
+  } catch (e) {
+    console.error('chantier/debourses PATCH', e);
+    res.status(500).json({ erreur: 'Erreur lors de la mise à jour du déboursé banque.' });
+  }
+});
+
+router.delete('/debourses/:id', async (req, res) => {
+  try {
+    await prisma.debourseBanque.delete({ where: { id: toInt(req.params.id) } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('chantier/debourses DELETE', e);
+    res.status(500).json({ erreur: 'Erreur lors de la suppression du déboursé banque.' });
   }
 });
 
