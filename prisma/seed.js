@@ -288,6 +288,81 @@ const CHANTIER_PRE_JALONS = [
   { name: 'Implantation / piquetage', description: 'Localisation exacte du bâtiment sur le terrain.' },
 ];
 
+// Categories budgetaires de l'estime CDH (Construction Denis Hamel, juillet 2026,
+// soumission prix coutant majore 1 247 888 $ + taxes = 1 434 759 $). Sync par nom :
+// renomme les vieux metiers generiques vers les categories CDH, cree les manquantes,
+// et ne touche budgetPrevu QUE s'il est encore a 0 (jamais clobber Martin).
+const CDH_CATEGORIES = [
+  { name: 'Démolition et excavation', budget: 70000, renameFrom: 'Excavation' },
+  { name: 'Fosse septique et champ d\'épuration', budget: 52500 },
+  { name: 'Fondation', budget: 72500 },
+  { name: 'Charpente et structure', budget: 162000, renameFrom: 'Charpente' },
+  { name: 'Portes et fenêtres', budget: 64600, renameFrom: 'Fenêtres et portes' },
+  { name: 'Isolation / étanchéité', budget: 69300, renameFrom: 'Isolation' },
+  { name: 'Gypse et joints', budget: 48650, renameFrom: 'Gypse et tirage de joints' },
+  { name: 'Revêtement de plancher (béton, époxy)', budget: 40600, renameFrom: 'Planchers' },
+  { name: 'Finition intérieure', budget: 9900 },
+  { name: 'Peinture', budget: 17700 },
+  { name: 'Escalier intérieur (acier, béton)', budget: 21500 },
+  { name: 'Ébénisterie (mobilier fixe)', budget: 62800, renameFrom: 'Armoires et cuisine' },
+  { name: 'Maçonnerie extérieure', budget: 24200 },
+  { name: 'Finition extérieure (revêtement bois)', budget: 86000 },
+  { name: 'Balcons, dalles et rampes de verre', budget: 49500 },
+  { name: 'Électricité (domotique, plancher chauffant)', budget: 72650, renameFrom: 'Électricité' },
+  { name: 'Plomberie', budget: 46600 },
+  { name: 'CVAC / climatisation centrale', budget: 21702 },
+  { name: 'Exigences générales / gestion', budget: 92620 },
+  { name: 'Administration CDH (8 %)', budget: 86826 },
+  { name: 'Profit CDH (7 %)', budget: 75973 },
+];
+
+// Grille d'inspection progressive de la banque (institution financiere QC).
+// Poids en % du projet — somme = 100. C'est l'avancement OFFICIEL qui
+// declenche les debourses.
+const GRILLE_BANQUE = [
+  // Stade 1 — Fondation et charpente (38,4 %)
+  { stade: 1, name: 'Architecte et plans', weight: 0.7 },
+  { stade: 1, name: 'Permis, arpentage, garantie du propriétaire', weight: 1.7 },
+  { stade: 1, name: 'Raccordements des services', weight: 1.6 },
+  { stade: 1, name: 'Défrichement, excavation, remblayage', weight: 2.5 },
+  { stade: 1, name: 'Semelles, fondation, plancher du sous-sol', weight: 6.0 },
+  { stade: 1, name: 'Alimentation en eau, évacuation des déchets', weight: 0.6 },
+  { stade: 1, name: 'Charpente', weight: 18.0 },
+  { stade: 1, name: 'Toiture', weight: 3.0 },
+  { stade: 1, name: 'Fenêtres', weight: 3.1 },
+  { stade: 1, name: 'Portes extérieures', weight: 1.2 },
+  // Stade 2 — Systèmes et recouvrements (29,4 %)
+  { stade: 2, name: 'Finition extérieure', weight: 8.2 },
+  { stade: 2, name: 'Soffites, gouttières et bordures de toit', weight: 0.8 },
+  { stade: 2, name: 'Plomberie brute', weight: 2.6 },
+  { stade: 2, name: 'Filage brut', weight: 3.8 },
+  { stade: 2, name: 'Chauffage et climatisation', weight: 4.5 },
+  { stade: 2, name: 'Isolation', weight: 2.2 },
+  { stade: 2, name: 'Placoplâtre (gypse)', weight: 6.2 },
+  { stade: 2, name: 'Foyer et cheminées', weight: 1.1 },
+  // Stade 3 — Finition (32,2 %)
+  { stade: 3, name: 'Appareils de plomberie', weight: 3.7 },
+  { stade: 3, name: 'Appareils d\'éclairage', weight: 1.0 },
+  { stade: 3, name: 'Couvre-planchers', weight: 4.5 },
+  { stade: 3, name: 'Cabinets, vanités, lavabos', weight: 4.8 },
+  { stade: 3, name: 'Finition intérieure', weight: 5.5 },
+  { stade: 3, name: 'Peinture', weight: 3.8 },
+  { stade: 3, name: 'Portes intérieures', weight: 1.6 },
+  { stade: 3, name: 'Carrelage', weight: 1.0 },
+  { stade: 3, name: 'Encastrés', weight: 2.1 },
+  { stade: 3, name: 'Portes et ouvre-portes de garage', weight: 1.2 },
+  { stade: 3, name: 'Terrasses, trottoirs et patios', weight: 1.5 },
+  { stade: 3, name: 'Entrée de cour, aménagement paysager', weight: 1.5 },
+];
+
+// Debourses progressifs — division naturelle selon les 3 stades de la grille,
+// proportionnels au montant total du projet CDH (1 434 759 $ taxes incluses).
+const DEBOURSES_BANQUE = [
+  { label: 'Déboursé 1 — Stade 1 : fondation et charpente', amount: 550950, condition: 'Grille banque stade 1 complétée (38,4 % du projet) + inspection', order: 1 },
+  { label: 'Déboursé 2 — Stade 2 : systèmes et recouvrements', amount: 421820, condition: 'Grille banque stade 2 complétée (67,8 % cumulé) + inspection', order: 2 },
+  { label: 'Déboursé 3 — Stade 3 : finition et livraison', amount: 461990, condition: 'Grille banque 100 % + inspection finale', order: 3 },
+];
+
 // Photos du terrain deja presentes dans le repo frontend (public/images/*).
 // Seedees comme docs PHOTO via fileUrl (pas de base64 en DB pour celles-la).
 const CHANTIER_SEED_PHOTOS = [
@@ -340,6 +415,58 @@ async function seedChantier(prisma) {
       });
     }
     console.log(`✓ ${CHANTIER_PRE_JALONS.length} pré-jalons seedés`);
+  }
+
+  // Sync categories CDH (additif, jamais clobber les montants edites par Martin)
+  const allTrades = await prisma.trade.findMany({ where: { projectId: project.id } });
+  let cdhOrder = allTrades.length;
+  for (let i = 0; i < CDH_CATEGORIES.length; i++) {
+    const c = CDH_CATEGORIES[i];
+    let t = allTrades.find((x) => x.name === c.name);
+    if (!t && c.renameFrom) {
+      const old = allTrades.find((x) => x.name === c.renameFrom);
+      if (old) {
+        t = await prisma.trade.update({
+          where: { id: old.id },
+          data: { name: c.name, ...(old.budgetPrevu === 0 ? { budgetPrevu: c.budget } : {}) },
+        });
+      }
+    } else if (t && t.budgetPrevu === 0) {
+      t = await prisma.trade.update({ where: { id: t.id }, data: { budgetPrevu: c.budget } });
+    }
+    if (!t) {
+      await prisma.trade.create({
+        data: { projectId: project.id, name: c.name, budgetPrevu: c.budget, order: ++cdhOrder, icon: 'hammer', color: '#D97706' },
+      });
+    }
+  }
+  console.log('✓ Catégories CDH synchronisées');
+
+  // Grille d'avancement banque (26 postes) — seulement si vierge
+  const avCount = await prisma.avancementItem.count({ where: { projectId: project.id } });
+  if (avCount === 0) {
+    for (let i = 0; i < GRILLE_BANQUE.length; i++) {
+      const g = GRILLE_BANQUE[i];
+      await prisma.avancementItem.create({
+        data: { projectId: project.id, stade: g.stade, name: g.name, weight: g.weight, pct: 0, order: i + 1 },
+      });
+    }
+    console.log(`✓ ${GRILLE_BANQUE.length} postes de la grille banque seedés`);
+  }
+
+  // Debourses banque — seulement si vierge
+  const debCount = await prisma.debourseBanque.count({ where: { projectId: project.id } });
+  if (debCount === 0) {
+    for (const d of DEBOURSES_BANQUE) {
+      await prisma.debourseBanque.create({ data: { projectId: project.id, ...d } });
+    }
+    console.log(`✓ ${DEBOURSES_BANQUE.length} déboursés banque seedés`);
+  }
+
+  // Budget total projet = estime CDH taxes incluses, seulement si encore a 0
+  if ((project.budgetTotal || 0) === 0) {
+    await prisma.chantierProject.update({ where: { id: project.id }, data: { budgetTotal: 1434759 } });
+    console.log('✓ Budget total initialisé à 1 434 759 $ (CDH taxes incluses)');
   }
 
   const photoCount = await prisma.chantierDoc.count({ where: { projectId: project.id } });
