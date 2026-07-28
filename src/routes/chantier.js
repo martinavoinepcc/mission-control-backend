@@ -95,7 +95,7 @@ router.get('/overview', async (req, res) => {
       prisma.soumission.findMany({ where: { projectId: project.id } }),
       prisma.depense.findMany({ where: { projectId: project.id } }),
       prisma.contact.count({ where: { projectId: project.id } }),
-      prisma.debourseBanque.findMany({ where: { projectId: project.id } }),
+      prisma.debourseBanque.findMany({ where: { projectId: project.id }, orderBy: [{ order: 'asc' }] }),
       prisma.chantierDoc.findMany({
         where: { projectId: project.id, kind: 'PHOTO' },
         orderBy: { createdAt: 'desc' },
@@ -165,7 +165,10 @@ router.get('/overview', async (req, res) => {
         totalRecu: debourses.filter((d) => d.recu).reduce((acc, d) => acc + (d.amount || 0), 0),
         count: debourses.length,
         countRecu: debourses.filter((d) => d.recu).length,
+        prochain: debourses.find((d) => !d.recu) || null,
       },
+      avancementBanque: await prisma.avancementItem.findMany({ where: { projectId: project.id }, select: { weight: true, pct: true } })
+        .then((items) => Math.round(items.reduce((acc, it) => acc + (it.weight * it.pct) / 100, 0) * 10) / 10),
       globalProgress,
       counts: {
         trades: trades.length,
@@ -700,6 +703,31 @@ router.delete('/docs/:id', async (req, res) => {
   } catch (e) {
     console.error('chantier/docs DELETE', e);
     res.status(500).json({ erreur: 'Erreur lors de la suppression du document.' });
+  }
+});
+
+// ============ GRILLE D'AVANCEMENT BANQUE (inspection progressive) ============
+
+router.get('/avancement', async (req, res) => {
+  const project = await getProject();
+  const items = await prisma.avancementItem.findMany({
+    where: { projectId: project.id },
+    orderBy: [{ stade: 'asc' }, { order: 'asc' }],
+  });
+  const global = Math.round(items.reduce((acc, it) => acc + (it.weight * it.pct) / 100, 0) * 10) / 10;
+  res.json({ items, global });
+});
+
+router.patch('/avancement/:id', async (req, res) => {
+  try {
+    const id = toInt(req.params.id);
+    const { pct } = req.body || {};
+    const clamped = Math.max(0, Math.min(100, toInt(pct)));
+    const item = await prisma.avancementItem.update({ where: { id }, data: { pct: clamped } });
+    res.json({ item });
+  } catch (e) {
+    console.error('chantier/avancement PATCH', e);
+    res.status(500).json({ erreur: "Erreur lors de la mise à jour de l'avancement." });
   }
 });
 
