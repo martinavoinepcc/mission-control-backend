@@ -578,6 +578,7 @@ model ChantierProject {
   depenses    Depense[]
   docs        ChantierDoc[]
   debourses   DebourseBanque[]
+  avancement  AvancementItem[]
 }
 
 model Trade {
@@ -688,6 +689,25 @@ model Depense {
   createdAt    DateTime        @default(now())
 
   @@index([projectId])
+}
+
+// Grille d'inspection progressive de la banque : 26 postes pondérés (poids en %
+// du projet, somme = 100). L'inspecteur/Martin note le % terminé de chaque poste;
+// l'avancement officiel = somme(poids × pct/100). C'est ce % qui déclenche les
+// déboursés progressifs.
+model AvancementItem {
+  id        Int             @id @default(autoincrement())
+  projectId Int
+  project   ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stade     Int             @default(1) // 1 fondation/charpente, 2 systèmes/recouvrements, 3 finition
+  name      String
+  weight    Float           @default(0) // poids en % du projet total
+  pct       Int             @default(0) // % terminé 0-100
+  order     Int             @default(0)
+  updatedAt DateTime        @updatedAt
+  createdAt DateTime        @default(now())
+
+  @@index([projectId, stade, order])
 }
 
 // Deboursés progressifs de la banque (financement construction).
