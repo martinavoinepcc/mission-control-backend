@@ -231,6 +231,18 @@ async function main() {
     });
   }
 
+  // Voyage : les enfants aussi (demande Martin 2026-08-01 — toute la famille voit le plan)
+  const voyage = createdApps['voyage'];
+  if (voyage) {
+    for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
+      await prisma.userApp.upsert({
+        where: { userId_appId: { userId: createdUsers[email].id, appId: voyage.id } },
+        update: { hasAccess: true },
+        create: { userId: createdUsers[email].id, appId: voyage.id, hasAccess: true },
+      });
+    }
+  }
+
   // Éducatif : enfants uniquement (pas Marie-Josée)
   const educatif = createdApps['educatif'];
   for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
