@@ -8,7 +8,8 @@
 // { version: 1,
 //   overrides: { "<date>#<index>": { time: "08:15" } },      // heures modifiées
 //   comments:  { "<itemId>": [ { a: "Martin", t: "...", ts } ] },
-//   extras:    { "<date>": [ { id, time, title, note, addr, by } ] } }
+//   extras:    { "<date>": [ { id, time, title, note, addr, by } ] },
+//   done:      { "<cid>": { by: "Martin", ts } } }            // items cochés (masqués)
 
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -20,7 +21,9 @@ const router = express.Router();
 router.use(auth);
 
 const SLUG = 'voyage';
-const DEFAULT_STATE = { version: 1, overrides: {}, comments: {}, extras: {} };
+const DEFAULT_STATE = { version: 1, overrides: {}, comments: {}, extras: {}, done: {} };
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // GET /voyage — état courant (ou défaut vide si jamais sauvegardé)
 router.get('/', async (req, res) => {
@@ -39,13 +42,15 @@ router.put('/', async (req, res) => {
   try {
     const { data } = req.body || {};
     if (
-      !data || typeof data !== 'object' ||
-      typeof data.overrides !== 'object' || data.overrides === null ||
-      typeof data.comments !== 'object' || data.comments === null ||
-      typeof data.extras !== 'object' || data.extras === null
+      !isPlainObject(data) ||
+      !isPlainObject(data.overrides) ||
+      !isPlainObject(data.comments) ||
+      !isPlainObject(data.extras) ||
+      (data.done !== undefined && !isPlainObject(data.done))
     ) {
       return res.status(400).json({ erreur: 'Format d\'état voyage invalide.' });
     }
+    if (data.done === undefined) data.done = {};
     const updatedBy = (req.user && req.user.firstName) || null;
     const row = await prisma.budgetState.upsert({
       where: { slug: SLUG },
