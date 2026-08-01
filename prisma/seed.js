@@ -75,6 +75,15 @@ const APPS = [
     realm: 'FAMILY',
   },
   {
+    slug: 'voyage',
+    name: 'Rocheuses & Glacier 2026',
+    description: 'Itinéraire du voyage — Calgary, Golden, Banff, Waterton, Glacier · 1 au 12 août 2026.',
+    icon: 'route',
+    color: '#256E80',
+    isMockup: false,
+    realm: 'FAMILY',
+  },
+  {
     slug: 'budget',
     name: 'Budget familial',
     description: 'Revenus, dépenses, prévisions et calculateur d\'hypothèque — le portrait financier de la famille.',
@@ -211,8 +220,8 @@ async function main() {
     });
   }
 
-  // Maison + Chalet + Chantier + Budget : Martin + Marie-Josée (parents)
-  for (const slug of ['maison', 'chalet', 'chantier', 'budget']) {
+  // Maison + Chalet + Chantier + Budget + Voyage : Martin + Marie-Josée (parents)
+  for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'voyage']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
