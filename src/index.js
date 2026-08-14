@@ -15,6 +15,7 @@ const kazRoutes = require('./routes/kaz');
 const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
 const chantierRoutes = require('./routes/chantier');
+const piecesRoutes = require('./routes/pieces');
 const budgetRoutes = require('./routes/budget');
 const voyageRoutes = require('./routes/voyage');
 const pushRoutes = require('./routes/push');
@@ -43,6 +44,9 @@ const allowedOrigins = [
   'https://my-mission-control.com',
   'https://www.my-mission-control.com',
   'https://app.my-mission-control.com',
+  // Adresse Render de secours du static site : utilisée quand le réseau maison
+  // de Martin bloque le domaine custom (filtre routeur, incident 2026-08-14).
+  'https://mission-control-frontend-evdz.onrender.com',
   'http://localhost:3000',
 ];
 
@@ -93,6 +97,7 @@ app.use('/kaz', kazRoutes);
 app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/chantier', chantierRoutes);
+app.use('/pieces', piecesRoutes);
 app.use('/budget', budgetRoutes);
 app.use('/voyage', voyageRoutes);
 app.use('/push', pushRoutes);
