@@ -75,15 +75,6 @@ const APPS = [
     realm: 'FAMILY',
   },
   {
-    slug: 'voyage',
-    name: 'Rocheuses & Glacier 2026',
-    description: 'Itinéraire du voyage — Calgary, Golden, Banff, Waterton, Glacier · 1 au 12 août 2026.',
-    icon: 'route',
-    color: '#256E80',
-    isMockup: false,
-    realm: 'FAMILY',
-  },
-  {
     slug: 'budget',
     name: 'Budget familial',
     description: 'Revenus, dépenses, prévisions et calculateur d\'hypothèque — le portrait financier de la famille.',
@@ -220,8 +211,8 @@ async function main() {
     });
   }
 
-  // Maison + Chalet + Chantier + Budget + Voyage : Martin + Marie-Josée (parents)
-  for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'voyage']) {
+  // Maison + Chalet + Chantier + Budget : Martin + Marie-Josée (parents)
+  for (const slug of ['maison', 'chalet', 'chantier', 'budget']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
@@ -229,18 +220,6 @@ async function main() {
       update: { hasAccess: true },
       create: { userId: createdUsers['marie-josee@my-mission-control.com'].id, appId: app.id, hasAccess: true },
     });
-  }
-
-  // Voyage : les enfants aussi (demande Martin 2026-08-01 — toute la famille voit le plan)
-  const voyage = createdApps['voyage'];
-  if (voyage) {
-    for (const email of ['alizee@my-mission-control.com', 'jackson@my-mission-control.com']) {
-      await prisma.userApp.upsert({
-        where: { userId_appId: { userId: createdUsers[email].id, appId: voyage.id } },
-        update: { hasAccess: true },
-        create: { userId: createdUsers[email].id, appId: voyage.id, hasAccess: true },
-      });
-    }
   }
 
   // Éducatif : enfants uniquement (pas Marie-Josée)
