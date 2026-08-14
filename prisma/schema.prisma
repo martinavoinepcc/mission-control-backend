@@ -768,3 +768,31 @@ model ChantierDoc {
   @@index([projectId])
   @@index([jalonId])
 }
+
+
+// ============ Notre Chalet - piece par piece (2026-08-14) ============
+// Entrees par piece : requis cochables, commentaires, inspirations (photos).
+// Les pieces elles-memes (17) sont definies cote frontend (metadata statique
+// extraite des plans TALO) — la DB ne stocke que le contenu vivant.
+
+enum PieceEntryKind {
+  REQUIS
+  COMMENTAIRE
+  INSPIRATION
+}
+
+model PieceEntry {
+  id        Int            @id @default(autoincrement())
+  pieceId   String
+  kind      PieceEntryKind
+  text      String         @default("") @db.Text
+  author    String
+  done      Boolean        @default(false)
+  likes     Json           @default("[]")
+  replies   Json           @default("[]")
+  photoData String?        @db.Text // data:image/webp;base64,... (compresse client)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([pieceId])
+}
