@@ -75,6 +75,15 @@ const APPS = [
     realm: 'FAMILY',
   },
   {
+    slug: 'pieces',
+    name: 'Notre Chalet',
+    description: 'Le chalet pièce par pièce — requis, commentaires, inspirations et dimensions des plans.',
+    icon: 'door-open',
+    color: '#1D7A8C',
+    isMockup: false,
+    realm: 'FAMILY',
+  },
+  {
     slug: 'budget',
     name: 'Budget familial',
     description: 'Revenus, dépenses, prévisions et calculateur d\'hypothèque — le portrait financier de la famille.',
@@ -211,8 +220,9 @@ async function main() {
     });
   }
 
-  // Maison + Chalet + Chantier + Budget : Martin + Marie-Josée (parents)
-  for (const slug of ['maison', 'chalet', 'chantier', 'budget']) {
+  // Maison + Chalet + Chantier + Budget + Pièces : Martin + Marie-Josée (parents)
+  // `pieces` = « Notre Chalet » — pas d'accès enfants (décision Martin 2026-08-14).
+  for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'pieces']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
