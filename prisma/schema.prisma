@@ -579,6 +579,7 @@ model ChantierProject {
   docs        ChantierDoc[]
   debourses   DebourseBanque[]
   avancement  AvancementItem[]
+  series      PlanSerie[]
 }
 
 model Trade {
@@ -745,10 +746,48 @@ model BudgetState {
   updatedAt DateTime @updatedAt
 }
 
+// Serie de plans / devis : regroupe les versions successives d'un meme document
+// (ex. "Plans d'architecture TALO" -> esquisses, consultation, final, septembre).
+model PlanSerie {
+  id          Int             @id @default(autoincrement())
+  projectId   Int
+  project     ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  category    PlanCategorie   @default(AUTRE)
+  description String?         @db.Text
+  order       Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  docs        ChantierDoc[]
+
+  @@index([projectId, category, order])
+}
+
+enum PlanCategorie {
+  ARCHITECTURE
+  IMPLANTATION
+  DESIGN_INTERIEUR
+  STRUCTURE
+  ELECTRIQUE
+  MECANIQUE
+  PERMIS
+  DEVIS
+  RENDUS_3D
+  AUTRE
+}
+
 model ChantierDoc {
   id           Int             @id @default(autoincrement())
   projectId    Int
   project      ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  serieId      Int?
+  serie        PlanSerie?      @relation(fields: [serieId], references: [id], onDelete: SetNull)
+  version      String? // ex. "v4 - septembre 2026"
+  versionDate  DateTime? // date d'emission du document
+  author       String? // TALO, SGDA, BLP, CDH...
+  notes        String?         @db.Text
+  fileName     String?
+  fileSize     Int? // octets
   tradeId      Int?
   trade        Trade?          @relation(fields: [tradeId], references: [id], onDelete: SetNull)
   jalonId      Int?
@@ -767,6 +806,7 @@ model ChantierDoc {
 
   @@index([projectId])
   @@index([jalonId])
+  @@index([serieId])
 }
 
 
