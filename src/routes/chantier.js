@@ -20,7 +20,10 @@
 // - DELETE /chantier/soumissions/:id
 // - GET    /chantier/depenses                  | POST /chantier/depenses | DELETE /chantier/depenses/:id
 // - GET    /chantier/docs                       | POST /chantier/docs | DELETE /chantier/docs/:id
-// - GET    /chantier/docs/:id/raw  (binaire, supporte ?token= pour <img>)
+// - GET    /chantier/docs/:id/raw  (binaire, supporte ?token= pour <img> ; ?download=1 -> piece jointe)
+// - PATCH  /chantier/docs/:id  (classer dans une serie, version, notes)
+// - GET    /chantier/plans   (series de plans/devis + versions)  | POST /chantier/plans/series
+// - PATCH  /chantier/plans/series/:id | DELETE /chantier/plans/series/:id (si vide)
 
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
@@ -625,6 +628,19 @@ router.delete('/depenses/:id', async (req, res) => {
 
 // ============ DOCS (plans / permis / photos) ============
 
+const DOC_SELECT = {
+  id: true, kind: true, title: true, mimeType: true, fileUrl: true,
+  width: true, height: true, takenAt: true, createdAt: true, jalonId: true, tradeId: true,
+  serieId: true, version: true, versionDate: true, author: true, notes: true, fileName: true, fileSize: true,
+};
+
+function dataUrlSize(fileData) {
+  if (!fileData) return null;
+  const i = String(fileData).indexOf(',');
+  const b64 = i >= 0 ? String(fileData).slice(i + 1) : String(fileData);
+  return Math.floor(b64.length * 3 / 4);
+}
+
 // Liste : metadata seulement (jamais fileData, trop lourd).
 router.get('/docs', async (req, res) => {
   const project = await getProject();
@@ -634,10 +650,7 @@ router.get('/docs', async (req, res) => {
   const docs = await prisma.chantierDoc.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    select: {
-      id: true, kind: true, title: true, mimeType: true, fileUrl: true,
-      width: true, height: true, takenAt: true, createdAt: true, jalonId: true, tradeId: true,
-    },
+    select: DOC_SELECT,
   });
   res.json({ docs });
 });
@@ -645,7 +658,8 @@ router.get('/docs', async (req, res) => {
 router.post('/docs', async (req, res) => {
   try {
     const project = await getProject();
-    const { kind, title, fileData, fileUrl, mimeType, width, height, takenAt, jalonId, tradeId, soumissionId } = req.body || {};
+    const { kind, title, fileData, fileUrl, mimeType, width, height, takenAt, jalonId, tradeId, soumissionId,
+      serieId, version, versionDate, author, notes, fileName, fileSize } = req.body || {};
     if (!title || !String(title).trim()) return res.status(400).json({ erreur: 'Le titre du document est requis.' });
     if (!fileData && !fileUrl) return res.status(400).json({ erreur: 'Un fichier ou un lien est requis.' });
     // Limite base64 ~60 MB (express.json limit 80mb) — permet les plans PDF complets
@@ -666,9 +680,17 @@ router.post('/docs', async (req, res) => {
         jalonId: jalonId ? toInt(jalonId) : null,
         tradeId: tradeId ? toInt(tradeId) : null,
         soumissionId: soumissionId ? toInt(soumissionId) : null,
+        serieId: serieId ? toInt(serieId) : null,
+        version: version ? String(version).trim() : null,
+        versionDate: parseDate(versionDate),
+        author: author ? String(author).trim() : null,
+        notes: notes ? String(notes) : null,
+        fileName: fileName ? String(fileName) : null,
+        fileSize: fileSize ? toInt(fileSize) : dataUrlSize(fileData),
       },
-      select: { id: true, kind: true, title: true, mimeType: true, createdAt: true, jalonId: true },
+      select: DOC_SELECT,
     });
+    if (doc.serieId) await prisma.planSerie.update({ where: { id: doc.serieId }, data: { updatedAt: new Date() } }).catch(() => {});
     res.status(201).json({ doc });
   } catch (e) {
     console.error('chantier/docs POST', e);
@@ -689,6 +711,11 @@ router.get('/docs/:id/raw', async (req, res) => {
     const buf = Buffer.from(m[2], 'base64');
     res.setHeader('Content-Type', mime);
     res.setHeader('Cache-Control', 'private, max-age=86400');
+    const ext = ({ 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' })[mime] || '';
+    const base = (doc.fileName || (doc.title + ext)).replace(/[\r\n"]/g, '');
+    const ascii = base.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '_');
+    const disp = req.query.download ? 'attachment' : 'inline';
+    res.setHeader('Content-Disposition', disp + '; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(base));
     res.send(buf);
   } catch (e) {
     console.error('chantier/docs/:id/raw', e);
@@ -703,6 +730,102 @@ router.delete('/docs/:id', async (req, res) => {
   } catch (e) {
     console.error('chantier/docs DELETE', e);
     res.status(500).json({ erreur: 'Erreur lors de la suppression du document.' });
+  }
+});
+
+// Classer / annoter un document existant (serie, version, notes, titre, jalon).
+router.patch('/docs/:id', async (req, res) => {
+  try {
+    const { title, kind, serieId, version, versionDate, author, notes, jalonId, fileName } = req.body || {};
+    const data = {};
+    if (title !== undefined) data.title = String(title).trim();
+    if (kind !== undefined) data.kind = String(kind);
+    if (serieId !== undefined) data.serieId = serieId ? toInt(serieId) : null;
+    if (version !== undefined) data.version = version ? String(version).trim() : null;
+    if (versionDate !== undefined) data.versionDate = parseDate(versionDate);
+    if (author !== undefined) data.author = author ? String(author).trim() : null;
+    if (notes !== undefined) data.notes = notes ? String(notes) : null;
+    if (jalonId !== undefined) data.jalonId = jalonId ? toInt(jalonId) : null;
+    if (fileName !== undefined) data.fileName = fileName ? String(fileName) : null;
+    const doc = await prisma.chantierDoc.update({ where: { id: toInt(req.params.id) }, data, select: DOC_SELECT });
+    res.json({ doc });
+  } catch (e) {
+    console.error('chantier/docs PATCH', e);
+    res.status(500).json({ erreur: 'Erreur lors de la mise a jour du document.' });
+  }
+});
+
+// ============ PLANS & DEVIS (series versionnees) ============
+
+const PLAN_CATEGORIES = ['ARCHITECTURE', 'IMPLANTATION', 'DESIGN_INTERIEUR', 'STRUCTURE', 'ELECTRIQUE', 'MECANIQUE', 'PERMIS', 'DEVIS', 'RENDUS_3D', 'AUTRE'];
+
+// Toutes les series avec leurs versions (metadata) + documents non classes (plans/permis/contrats sans serie).
+router.get('/plans', async (req, res) => {
+  try {
+    const project = await getProject();
+    const [series, orphans] = await Promise.all([
+      prisma.planSerie.findMany({
+        where: { projectId: project.id },
+        orderBy: [{ category: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
+        include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: 'desc' }, { createdAt: 'desc' }] } },
+      }),
+      prisma.chantierDoc.findMany({
+        where: { projectId: project.id, serieId: null, kind: { in: ['PLAN', 'PERMIS', 'CONTRAT', 'AUTRE'] } },
+        orderBy: { createdAt: 'desc' },
+        select: DOC_SELECT,
+      }),
+    ]);
+    res.json({ series, orphans, categories: PLAN_CATEGORIES });
+  } catch (e) {
+    console.error('chantier/plans GET', e);
+    res.status(500).json({ erreur: 'Erreur lors du chargement des plans.' });
+  }
+});
+
+router.post('/plans/series', async (req, res) => {
+  try {
+    const project = await getProject();
+    const { name, category, description, order } = req.body || {};
+    if (!name || !String(name).trim()) return res.status(400).json({ erreur: 'Le nom de la serie est requis.' });
+    const cat = PLAN_CATEGORIES.includes(category) ? category : 'AUTRE';
+    const serie = await prisma.planSerie.create({
+      data: { projectId: project.id, name: String(name).trim(), category: cat, description: description ? String(description) : null, order: toInt(order) },
+      include: { docs: { select: DOC_SELECT } },
+    });
+    res.status(201).json({ serie });
+  } catch (e) {
+    console.error('chantier/plans/series POST', e);
+    res.status(500).json({ erreur: 'Erreur lors de la creation de la serie.' });
+  }
+});
+
+router.patch('/plans/series/:id', async (req, res) => {
+  try {
+    const { name, category, description, order } = req.body || {};
+    const data = {};
+    if (name !== undefined) data.name = String(name).trim();
+    if (category !== undefined && PLAN_CATEGORIES.includes(category)) data.category = category;
+    if (description !== undefined) data.description = description ? String(description) : null;
+    if (order !== undefined) data.order = toInt(order);
+    const serie = await prisma.planSerie.update({ where: { id: toInt(req.params.id) }, data, include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: 'desc' }, { createdAt: 'desc' }] } } });
+    res.json({ serie });
+  } catch (e) {
+    console.error('chantier/plans/series PATCH', e);
+    res.status(500).json({ erreur: 'Erreur lors de la mise a jour de la serie.' });
+  }
+});
+
+// Suppression d'une serie : seulement si elle est vide (les versions sont conservees sinon).
+router.delete('/plans/series/:id', async (req, res) => {
+  try {
+    const id = toInt(req.params.id);
+    const n = await prisma.chantierDoc.count({ where: { serieId: id } });
+    if (n > 0) return res.status(409).json({ erreur: 'Cette serie contient encore ' + n + ' version(s). Supprime ou deplace-les d\'abord.' });
+    await prisma.planSerie.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('chantier/plans/series DELETE', e);
+    res.status(500).json({ erreur: 'Erreur lors de la suppression de la serie.' });
   }
 });
 
