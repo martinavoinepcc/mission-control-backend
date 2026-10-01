@@ -15,6 +15,7 @@ enum Role {
 enum Profile {
   ADULT
   CHILD
+  GUEST // invité externe de « Projet chalet » (entrepreneur, designer...) : ne voit QUE les tuiles cochées pour lui
 }
 
 enum Realm {
@@ -788,6 +789,7 @@ model ChantierDoc {
   notes        String?         @db.Text
   fileName     String?
   fileSize     Int? // octets
+  sha256       String? // empreinte du fichier (détection des doublons au classement) — rempli au dépôt / backfill progressif
   tradeId      Int?
   trade        Trade?          @relation(fields: [tradeId], references: [id], onDelete: SetNull)
   jalonId      Int?
@@ -835,4 +837,147 @@ model PieceEntry {
   updatedAt DateTime       @updatedAt
 
   @@index([pieceId])
+}
+
+// =====================================================================
+// PROJET CHALET — app unifiée (Chantier Chalet + Notre Chalet), 2026-10-01
+// ---------------------------------------------------------------------
+// Tout est ADDITIF : aucune table existante n'est modifiée (sauf 2 champs
+// optionnels ajoutés : Profile.GUEST et ChantierDoc.sha256).
+// Les données du chantier restent dans ChantierProject/Jalon/Soumission/...
+// Ces tables ajoutent : les tuiles, les pièces (avant hard-codées dans
+// public/chalet-pieces.html), la boîte de dépôt classée par Claude, les
+// invités avec visibilité tuile par tuile, les liens de partage, les
+// règlements et le journal d'activité.
+// =====================================================================
+
+// Une tuile de l'accueil. L'ordre, l'icône (Font Awesome, sans « fa-»), la
+// couleur et le texte d'aide se changent ici, pas dans le code.
+// prive = décochée par défaut quand on invite quelqu'un (Budget, Soumissions).
+model ChaletSection {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique // pieces | plans | jalons | budget | soumissions | contacts | photos | visite | reglements
+  nom       String
+  icone     String
+  couleur   String
+  aide      String?
+  ordre     Int      @default(0)
+  prive     Boolean  @default(false)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Une pièce du chalet. slug = l'ancien pieceId de chalet-pieces.html, pour que
+// toutes les PieceEntry existantes restent rattachées (zéro perte).
+model Piece {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  etage     String // RDC | RDJ | EXT
+  numero    String? // « Chambre 1 », « Salle de bain 2 »...
+  nom       String
+  qui       String?
+  icone     String? // Font Awesome sans « fa-»
+  cotes     Json     @default("[]") // ["10′-3½″ × 10′-9¾″", "Niche pour chevet"]
+  image     String? // nom de fichier dans public/mockups/pieces-img/
+  ordre     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum DepotStatut {
+  EN_ATTENTE // déposé, attend le prochain classement (8 h / 12 h / 18 h / 22 h)
+  A_VALIDER // Claude propose une destination, un propriétaire confirme
+  CLASSE // rangé (par Claude ou confirmé)
+}
+
+// Boîte de dépôt. Le fichier est stocké UNE seule fois dans ChantierDoc (docId) ;
+// classer = rattacher ce document au bon endroit (série/version, jalon, pièce...).
+model DepotItem {
+  id           Int         @id @default(autoincrement())
+  description  String      @db.Text
+  fileName     String?
+  mimeType     String?
+  fileSize     Int?
+  sha256       String?
+  docId        Int? // ChantierDoc qui contient le fichier
+  statut       DepotStatut @default(EN_ATTENTE)
+  destination  String? // texte lisible : « Plans & devis › Architecture › Plans TALO › v5 »
+  raison       String?     @db.Text // explication de Claude
+  confiance    Float? // 0..1
+  proposition  Json? // action proposée (appliquée quand un propriétaire valide)
+  correction   String?     @db.Text // consigne d'un propriétaire quand il corrige
+  resultat     Json? // ce qui a été créé/modifié (ids) — traçabilité
+  auteurId     Int
+  auteurNom    String
+  classeLe     DateTime?
+  classePar    String? // « Claude (12 h) » ou prénom
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([statut])
+}
+
+// Un invité externe. Les propriétaires (Martin, Marie-Josée) ne sont PAS ici :
+// ils ont l'accès complet via UserApp(slug « projet-chalet »).
+model ChaletMembre {
+  id         Int                 @id @default(autoincrement())
+  nom        String
+  detail     String? // texte libre : « Électricien », « Entrepreneur général »
+  code       String              @unique // code d'invitation à usage unique
+  userId     Int?                @unique // rempli quand l'invité a créé son compte
+  actif      Boolean             @default(true) // false = accès retiré (rien n'est supprimé)
+  expireLe   DateTime?
+  creePar    String
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  tuiles     ChaletMembreTuile[]
+}
+
+// Une ligne = une tuile que cet invité peut voir. Le serveur refuse le reste.
+model ChaletMembreTuile {
+  id        Int          @id @default(autoincrement())
+  membreId  Int
+  membre    ChaletMembre @relation(fields: [membreId], references: [id], onDelete: Cascade)
+  slug      String
+
+  @@unique([membreId, slug])
+}
+
+// Lien de partage d'un document (plan, devis...) qui expire.
+model PartageLien {
+  id         Int       @id @default(autoincrement())
+  token      String    @unique
+  docId      Int
+  titre      String
+  expireLe   DateTime
+  vues       Int       @default(0)
+  creePar    String
+  revoque    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+}
+
+// Ville & règlements (Trois-Rives, MRC de Mékinac, bande riveraine...).
+model Reglement {
+  id        Int      @id @default(autoincrement())
+  titre     String
+  source    String?
+  lien      String?
+  detail    String?  @db.Text
+  statut    String   @default("A_CONFIRMER") // A_CONFIRMER | CONFIRME | NON_APPLICABLE
+  ordre     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Journal d'activité (dépôts, classements, invitations...).
+model Activite {
+  id        Int      @id @default(autoincrement())
+  texte     String
+  icone     String   @default("circle-info")
+  tuile     String? // slug de tuile concernée : sert à filtrer pour les invités
+  auteur    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

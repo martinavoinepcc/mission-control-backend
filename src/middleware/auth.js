@@ -17,6 +17,17 @@ function auth(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     req.user = payload;
+    // Invités externes (profil GUEST, Projet chalet) : on les enferme dans leur
+    // périmètre ici, une seule fois pour toute l'API. Ils n'ont accès qu'à :
+    //   /projet-chalet, /chantier, /pieces (filtrés tuile par tuile plus loin)
+    //   /users/me (leur profil) et /auth (mot de passe).
+    // Tout le reste (messagerie, budget familial, éducatif, FRIDAY...) = 403.
+    if (payload.profile === 'GUEST') {
+      const base = req.baseUrl || '';
+      const permis = ['/projet-chalet', '/chantier', '/pieces', '/auth'].includes(base)
+        || (base === '/users' && /^\/me\/?$/.test(req.path));
+      if (!permis) return res.status(403).json({ erreur: 'Accès réservé.' });
+    }
     next();
   } catch (err) {
     return res.status(401).json({ erreur: 'Session expirée ou invalide.' });

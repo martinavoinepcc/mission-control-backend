@@ -2,7 +2,9 @@
 //
 // Un seul projet actif (slug 'chalet') pour l'instant, mais le modele supporte
 // plusieurs projets. Toutes les routes sont protegees par auth + adultOnly
-// (les enfants n'ont pas acces au chantier).
+// (les enfants n'ont pas acces au chantier) + l'acces « Projet chalet » :
+// proprietaires = tout ; invites = lecture seule, seulement les tuiles cochees
+// (voir src/middleware/projet-chalet-acces.js et TUILES_INVITE plus bas).
 //
 // Structure :
 // - GET    /chantier/overview                 -> projet + rollups (budget, avancement, prochains jalons, photos recentes)
@@ -28,6 +30,8 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
+const crypto = require('crypto');
+const { chargerAcces, aTuile, lectureSeuleInvite } = require('../middleware/projet-chalet-acces');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -47,7 +51,46 @@ function adminOnly(req, res, next) {
   next();
 }
 
-router.use(auth, adultOnly);
+router.use(auth, adultOnly, chargerAcces, lectureSeuleInvite);
+
+// ---- Invites : quelle tuile ouvre quelle route (GET seulement, ecritures deja bloquees) ----
+// Un invite qui appelle une route absente de cette liste est refuse (refus par defaut).
+// '*' = n'importe quelle tuile suffit (la reponse est ensuite nettoyee des montants).
+const TUILES_INVITE = [
+  [/^\/overview$/, ['budget']],
+  [/^\/project$/, ['budget']],
+  [/^\/trades$/, ['*']],
+  [/^\/contacts$/, ['contacts', 'soumissions']],
+  [/^\/jalons(\/\d+)?$/, ['jalons']],
+  [/^\/soumissions$/, ['soumissions']],
+  [/^\/depenses$/, ['budget']],
+  [/^\/debourses$/, ['budget']],
+  [/^\/avancement$/, ['jalons']],
+  [/^\/plans$/, ['plans']],
+  [/^\/docs$/, ['plans', 'photos', 'jalons']],
+  [/^\/docs\/\d+\/raw$/, ['doc']], // verifie selon le document (voir tuileDuDoc)
+];
+
+// A quelle tuile appartient un document : photo -> photos ; dans une serie ou plan/permis/contrat -> plans ; sinon jalons.
+function tuileDuDoc(doc) {
+  if (doc.kind === 'PHOTO') return 'photos';
+  if (doc.serieId || ['PLAN', 'PERMIS', 'CONTRAT'].includes(doc.kind)) return 'plans';
+  return 'jalons';
+}
+
+router.use(async (req, res, next) => {
+  if (!req.chalet || req.chalet.proprio) return next();
+  const regle = TUILES_INVITE.find(([re]) => re.test(req.path));
+  if (!regle) return res.status(403).json({ erreur: "Cette section n'est pas partagée avec toi." });
+  const tuiles = regle[1];
+  if (tuiles[0] === '*') return req.chalet.tuiles.size ? next() : res.status(403).json({ erreur: 'Aucune section partagée.' });
+  if (tuiles[0] === 'doc') {
+    const doc = await prisma.chantierDoc.findUnique({ where: { id: toInt(req.path.split('/')[2]) }, select: { kind: true, serieId: true } });
+    if (!doc) return res.status(404).json({ erreur: 'Document introuvable.' });
+    return aTuile(req, tuileDuDoc(doc)) ? next() : res.status(403).json({ erreur: "Ce document n'est pas partagé avec toi." });
+  }
+  return aTuile(req, ...tuiles) ? next() : res.status(403).json({ erreur: "Cette section n'est pas partagée avec toi." });
+});
 
 const PROJECT_SLUG = 'chalet';
 
@@ -228,6 +271,8 @@ router.get('/trades', async (req, res) => {
     where: { projectId: project.id },
     orderBy: { order: 'asc' },
   });
+  // Invite sans la tuile Budget : on retire le budget prevu de chaque metier.
+  if (!aTuile(req, 'budget')) return res.json({ trades: trades.map(({ budgetPrevu, ...t }) => t) });
   res.json({ trades });
 });
 
@@ -393,11 +438,17 @@ router.get('/jalons/:id', async (req, res) => {
         depenses: { orderBy: { createdAt: 'desc' } },
         docs: {
           orderBy: { createdAt: 'desc' },
-          select: { id: true, kind: true, title: true, mimeType: true, fileUrl: true, createdAt: true },
+          select: { id: true, kind: true, title: true, mimeType: true, fileUrl: true, createdAt: true, serieId: true },
         },
       },
     });
     if (!jalon) return res.status(404).json({ erreur: 'Jalon introuvable.' });
+    // Invite : on ne montre que ce que ses tuiles permettent (pas de soumissions/montants sinon).
+    if (req.chalet.invite) {
+      if (!aTuile(req, 'soumissions')) jalon.soumissions = [];
+      if (!aTuile(req, 'budget')) jalon.depenses = [];
+      jalon.docs = jalon.docs.filter((d) => aTuile(req, tuileDuDoc(d)));
+    }
     res.json({ jalon });
   } catch (e) {
     console.error('chantier/jalons/:id', e);
@@ -634,6 +685,26 @@ const DOC_SELECT = {
   serieId: true, version: true, versionDate: true, author: true, notes: true, fileName: true, fileSize: true,
 };
 
+// Le lecteur de Projet chalet affiche les PDF dans un cadre (<iframe>) servi depuis le site.
+// Helmet interdit par défaut tout cadrage par un autre site : on l'autorise UNIQUEMENT pour
+// les adresses du portail, et seulement sur les routes qui servent un fichier.
+const ORIGINES_CADRE = [
+  process.env.FRONTEND_URL || 'https://my-mission-control.com',
+  'https://my-mission-control.com', 'https://www.my-mission-control.com', 'https://app.my-mission-control.com',
+  'https://mission-control-frontend-evdz.onrender.com', 'http://localhost:3000',
+];
+function autoriserCadre(res) {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' " + [...new Set(ORIGINES_CADRE)].join(' '));
+}
+
+// Empreinte SHA-256 du contenu binaire d'un data URL (sert a reperer les doublons au classement).
+function sha256DataUrl(fileData) {
+  const str = String(fileData);
+  const i = str.indexOf(',');
+  return crypto.createHash('sha256').update(Buffer.from(i >= 0 ? str.slice(i + 1) : str, 'base64')).digest('hex');
+}
+
 function dataUrlSize(fileData) {
   if (!fileData) return null;
   const i = String(fileData).indexOf(',');
@@ -652,6 +723,7 @@ router.get('/docs', async (req, res) => {
     orderBy: { createdAt: 'desc' },
     select: DOC_SELECT,
   });
+  if (req.chalet.invite) return res.json({ docs: docs.filter((d) => aTuile(req, tuileDuDoc(d))) });
   res.json({ docs });
 });
 
@@ -687,6 +759,7 @@ router.post('/docs', async (req, res) => {
         notes: notes ? String(notes) : null,
         fileName: fileName ? String(fileName) : null,
         fileSize: fileSize ? toInt(fileSize) : dataUrlSize(fileData),
+        sha256: fileData ? sha256DataUrl(fileData) : null,
       },
       select: DOC_SELECT,
     });
@@ -709,6 +782,7 @@ router.get('/docs/:id/raw', async (req, res) => {
     if (!m) return res.status(500).json({ erreur: 'Format de fichier invalide.' });
     const mime = m[1];
     const buf = Buffer.from(m[2], 'base64');
+    autoriserCadre(res);
     res.setHeader('Content-Type', mime);
     res.setHeader('Cache-Control', 'private, max-age=86400');
     const ext = ({ 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' })[mime] || '';
@@ -767,7 +841,7 @@ router.get('/plans', async (req, res) => {
       prisma.planSerie.findMany({
         where: { projectId: project.id },
         orderBy: [{ category: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
-        include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: 'desc' }, { createdAt: 'desc' }] } },
+        include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }] } },
       }),
       prisma.chantierDoc.findMany({
         where: { projectId: project.id, serieId: null, kind: { in: ['PLAN', 'PERMIS', 'CONTRAT', 'AUTRE'] } },
@@ -807,7 +881,7 @@ router.patch('/plans/series/:id', async (req, res) => {
     if (category !== undefined && PLAN_CATEGORIES.includes(category)) data.category = category;
     if (description !== undefined) data.description = description ? String(description) : null;
     if (order !== undefined) data.order = toInt(order);
-    const serie = await prisma.planSerie.update({ where: { id: toInt(req.params.id) }, data, include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: 'desc' }, { createdAt: 'desc' }] } } });
+    const serie = await prisma.planSerie.update({ where: { id: toInt(req.params.id) }, data, include: { docs: { select: DOC_SELECT, orderBy: [{ versionDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }] } } });
     res.json({ serie });
   } catch (e) {
     console.error('chantier/plans/series PATCH', e);
@@ -922,3 +996,9 @@ router.delete('/debourses/:id', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.PLAN_CATEGORIES = PLAN_CATEGORIES;
+module.exports.sha256DataUrl = sha256DataUrl;
+module.exports.dataUrlSize = dataUrlSize;
+module.exports.DOC_SELECT = DOC_SELECT;
+module.exports.tuileDuDoc = tuileDuDoc;
+module.exports.autoriserCadre = autoriserCadre;

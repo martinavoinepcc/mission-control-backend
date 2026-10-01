@@ -55,6 +55,10 @@ const APPS = [
     color: '#3B82F6',
     isMockup: false,
     realm: 'FAMILY',
+    // Pas de domotique à la maison.
+    // Masquée (demande Martin 2026-10-01). Code, accès et config gardés :
+    // remettre true pour la réactiver.
+    isActive: false,
   },
   {
     slug: 'chalet',
@@ -64,6 +68,9 @@ const APPS = [
     color: '#F59E0B',
     isMockup: false,
     realm: 'FAMILY',
+    // Masquée (demande Martin 2026-10-01). Code, accès et config gardés :
+    // remettre true pour la réactiver.
+    isActive: false,
   },
   {
     slug: 'chantier',
@@ -73,6 +80,8 @@ const APPS = [
     color: '#D97706',
     isMockup: false,
     realm: 'FAMILY',
+    // Fusionnée dans « Projet chalet » (2026-10-01) : tuile masquée, page et données conservées.
+    isActive: false,
   },
   {
     slug: 'pieces',
@@ -80,6 +89,19 @@ const APPS = [
     description: 'Le chalet pièce par pièce — requis, commentaires, inspirations et dimensions des plans.',
     icon: 'door-open',
     color: '#1D7A8C',
+    isMockup: false,
+    realm: 'FAMILY',
+    // Fusionnée dans « Projet chalet » (2026-10-01) : tuile masquée, page et données conservées.
+    isActive: false,
+  },
+  {
+    // App unifiée : Chantier Chalet + Notre Chalet (2026-10-01). Voir src/routes/projet-chalet.js.
+    slug: 'projet-chalet',
+    name: 'Projet chalet',
+    description: 'Le nouveau chalet : pièces, plans et devis, jalons, budget, dépôt classé par Claude.',
+    icon: 'house-chimney',
+    color: '#2D6A4F',
+    url: '/apps/projet-chalet/',
     isMockup: false,
     realm: 'FAMILY',
   },
@@ -203,6 +225,7 @@ async function main() {
         color: a.color,
         isMockup: a.isMockup,
         realm: a.realm,
+        isActive: a.isActive ?? true,
       },
       create: a,
     });
@@ -222,7 +245,8 @@ async function main() {
 
   // Maison + Chalet + Chantier + Budget + Pièces : Martin + Marie-Josée (parents)
   // `pieces` = « Notre Chalet » — pas d'accès enfants (décision Martin 2026-08-14).
-  for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'pieces']) {
+  // `projet-chalet` = app unifiée (2026-10-01) : les 2 parents en sont propriétaires.
+  for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'pieces', 'projet-chalet']) {
     const app = createdApps[slug];
     if (!app) continue;
     await prisma.userApp.upsert({
@@ -267,6 +291,9 @@ async function main() {
 
   // Chantier Chalet — projet + metiers + pre-jalons + photos du terrain
   await seedChantier(prisma);
+
+  // Projet chalet — tuiles, pièces (ex-hard-codées dans chalet-pieces.html), règlements
+  await seedProjetChalet(prisma);
 
   console.log('✅ Seed terminé. Aucun module backend — MCreator Academy est full-frontend.');
 }
@@ -783,6 +810,71 @@ async function seedImprov(prisma) {
     });
   }
   console.log(`✓ Impro: ${IMPROV_CATEGORIES.length} cat + ${IMPROV_THEMES.length} thèmes + ${IMPROV_CONSTRAINTS.length} contraintes`);
+}
+
+
+// ============ PROJET CHALET SEED (2026-10-01) ============
+// Idempotent et NON destructif : chaque bloc ne crée que ce qui manque.
+// - Tuiles (ChaletSection) : créées si absentes ; jamais écrasées (Martin peut
+//   les renommer/réordonner ensuite, le seed ne revient pas dessus).
+// - Pièces (Piece) : les 17 pièces qui étaient hard-codées dans
+//   public/chalet-pieces.html (l.229-271). slug = ancien id → les PieceEntry
+//   existantes restent rattachées. Créées si absentes, jamais écrasées.
+// - Règlements : seedés seulement si la table est vide.
+async function seedProjetChalet(prisma) {
+  const SECTIONS = [
+    { slug: 'pieces', nom: 'Pièces', icone: 'door-open', couleur: '#1D7A8C', aide: 'Requis, votes, inspirations', ordre: 10 },
+    { slug: 'plans', nom: 'Plans & devis', icone: 'compass-drafting', couleur: '#2D6A4F', aide: 'Toutes les versions', ordre: 20 },
+    { slug: 'jalons', nom: 'Jalons', icone: 'flag-checkered', couleur: '#B45309', aide: 'Échéancier et avancement', ordre: 30 },
+    { slug: 'budget', nom: 'Budget', icone: 'sack-dollar', couleur: '#0C6B4F', aide: 'Déboursés et dépenses', ordre: 40, prive: true },
+    { slug: 'soumissions', nom: 'Soumissions', icone: 'file-signature', couleur: '#7A5C2E', aide: '3 prix par item', ordre: 50, prive: true },
+    { slug: 'contacts', nom: 'Contacts', icone: 'address-book', couleur: '#456B7A', aide: 'Par métier', ordre: 60 },
+    { slug: 'photos', nom: 'Photos', icone: 'camera', couleur: '#8A4B2A', aide: 'Chantier et terrain', ordre: 70 },
+    { slug: 'visite', nom: 'Visite 3D', icone: 'cube', couleur: '#3D5A80', aide: '360°, galerie, look final', ordre: 80 },
+    { slug: 'reglements', nom: 'Ville & règlements', icone: 'scale-balanced', couleur: '#5B6B2F', aide: 'Trois-Rives, MRC, rive', ordre: 90 },
+  ];
+  for (const s of SECTIONS) {
+    await prisma.chaletSection.upsert({ where: { slug: s.slug }, update: {}, create: { prive: false, ...s } });
+  }
+
+  const PIECES = [
+    { slug: 'garage', etage: 'RDC', icone: 'car-side', numero: 'Pièce 0', nom: 'Garage double', qui: 'Toute la famille', cotes: ['≈ 24′-0″ × 23′-5″ int.', 'Avaloir de sol', 'Porte côté est (à confirmer)'], image: 'rdc-garage.jpg' },
+    { slug: 'chambre-1', etage: 'RDC', icone: 'bed', numero: 'Chambre 1', nom: 'Chambre des maîtres', qui: 'Martin + MJ', cotes: ['10′-3½″ × 10′-9¾″', 'Niche pour chevet (au choix)'], image: 'rdc-chambre-1.jpg' },
+    { slug: 'sdb-1', etage: 'RDC', icone: 'bath', numero: 'Salle de bain 1', nom: 'SDB des maîtres', qui: 'Attenante à la chambre 1', cotes: ['≈ 8′-4″ × 10′-10″', 'Douche 36″×48″', 'Bain autoportant 34″×60″'], image: 'rdc-sdb-1.jpg' },
+    { slug: 'cuisine', etage: 'RDC', icone: 'kitchen-set', numero: null, nom: 'Cuisine + garde-manger', qui: 'Cœur de la maison', cotes: ['Façade 17′-9¾″ + îlot', 'Garde-manger 3′-11¼″ × 5′-0¼″', 'Hotte escamotable', 'Fenêtre bandeau'], image: 'rdc-cuisine.jpg' },
+    { slug: 'sejour', etage: 'RDC', icone: 'fire', numero: null, nom: 'Séjour cathédrale + salle à manger', qui: 'Aire ouverte', cotes: ['Aire ouverte 29′-0″ × 26′-0″', 'Paroi de verre 9′-4½″ pleine hauteur', 'Foyer au bois (module 5′-9″)', 'SàM 11′-0½″ × 7′-11½″'], image: 'rdc-sejour-sam.jpg' },
+    { slug: 'mudroom', etage: 'RDC', icone: 'door-open', numero: null, nom: 'Mudroom + hall + salle d’eau', qui: 'Entrées', cotes: ['Salle d’eau 5′-0″ × 4′-6″', 'Hall ≈ 7′-0″ × 6′-1½″'], image: 'rdc-mudroom-hall.jpg' },
+    { slug: 'terrasse-rdc', etage: 'RDC', icone: 'umbrella-beach', numero: null, nom: 'Terrasse couverte', qui: 'Côté lac', cotes: ['19′-6″ × 20′-4″', 'Poutres apparentes'], image: 'rdc-terrasse.jpg' },
+    { slug: 'famille', etage: 'RDJ', icone: 'couch', numero: null, nom: 'Salle familiale', qui: 'Toute la famille', cotes: ['18′-3¼″ × ≈ 20′-6″', 'Walkout côté lac', 'Ouverture au plafond'], image: 'rdj-salle-familiale.jpg' },
+    { slug: 'chambre-2', etage: 'RDJ', icone: 'bed', numero: 'Chambre 2', nom: 'Chambre des invités', qui: 'Invités', cotes: ['12′-5″ × 9′-2″'], image: 'rdj-chambre-2.jpg' },
+    { slug: 'chambre-3', etage: 'RDJ', icone: 'masks-theater', numero: 'Chambre 3', nom: 'Chambre d’Alizée', qui: 'Alizée', cotes: ['11′-4¾″ × 12′-9″ (incl. garde-robe)', 'Garde-robe 2 portes 24″×80″'], image: 'rdj-chambre-3.jpg' },
+    { slug: 'chambre-4', etage: 'RDJ', icone: 'gamepad', numero: 'Chambre 4', nom: 'Chambre de Jackson', qui: 'Jackson', cotes: ['10′-11¾″ × 10′-4½″', 'Garde-robe 2 portes 30″×80″'], image: 'rdj-chambre-4.jpg' },
+    { slug: 'sdb-2', etage: 'RDJ', icone: 'shower', numero: 'Salle de bain 2', nom: 'SDB des enfants', qui: 'Alizée + Jackson + invités', cotes: ['≈ 5′-5½″ × 9′-2″', 'Douche 60″×36″', 'Lingerie adjacente'], image: 'rdj-sdb-2.jpg' },
+    { slug: 'lavage', etage: 'RDJ', icone: 'soap', numero: 'Salle de bain 3', nom: 'Lavage + SDB 3', qui: 'Service', cotes: ['Lavage ≈ 6′-0¼″ de large', 'SDB 3 : bain-douche 30″×60″ (≈ 5′-9″ × 5′-5″)'], image: 'rdj-lavage-sdb3.jpg' },
+    { slug: 'terrasse-spa', etage: 'RDJ', icone: 'hot-tub-person', numero: null, nom: 'Terrasse + spa', qui: 'Sous la terrasse du haut', cotes: ['≈ 26′-0″ × 13′-9″', 'Structure renforcée pour le spa'], image: 'rdj-terrasse-spa.jpg' },
+    { slug: 'mecanique', etage: 'RDJ', icone: 'gears', numero: null, nom: 'Mécanique', qui: 'Technique', cotes: ['≈ 6′-3″ × 4′-8″', 'Échangeur d’air · panneau élec. · chauffe-eau'], image: null },
+    { slug: 'terrain', etage: 'EXT', icone: 'tree', numero: null, nom: 'Terrain + bord de l’eau', qui: 'Lot 4 872 894', cotes: ['2 061,4 m²', 'Rive 10,0 m (lac + ruisseau)', 'Marges : avant 7,6 m · lat. 2,0 m'], image: null },
+    { slug: 'enveloppe', etage: 'EXT', icone: 'house-chimney', numero: null, nom: 'Enveloppe extérieure', qui: 'Revêtements + toiture', cotes: ['Bois pâle horizontal', 'Tôle noire verticale', 'Pierre grise', 'Toit mono-pente, poutres en débord'], image: null },
+  ];
+  for (let i = 0; i < PIECES.length; i++) {
+    const p = PIECES[i];
+    await prisma.piece.upsert({ where: { slug: p.slug }, update: {}, create: { ...p, ordre: (i + 1) * 10 } });
+  }
+
+  if ((await prisma.reglement.count()) === 0) {
+    // Tout reste « à confirmer » avec l'inspecteur municipal (terrain riverain).
+    const REGLEMENTS = [
+      { titre: 'Permis de construction', source: 'Municipalité de Trois-Rives', lien: 'https://mrcmekinac.com/permis-de-construction-et-certificat/', detail: "Autorité = Municipalité de Trois-Rives + MRC de Mékinac (pas la ville de Trois-Rivières)." },
+      { titre: "Bande riveraine (PPRLPI) — certificat d'autorisation et abattage près de l'eau", source: 'MRC de Mékinac', lien: 'https://banderiveraine.org/respecter-les-regles/ce-qui-est-interdit-et-ce-qui-est-permis/', detail: 'Terrain riverain du lac Mékinac : certificat distinct possible, restrictions d’abattage près de l’eau.' },
+      { titre: 'Installation septique (Q-2, r.22) — tertiaire possible', source: 'Gouvernement du Québec', lien: null, detail: 'Risque noté à la soumission CDH : septique tertiaire possible selon le sol et la rive.' },
+      { titre: "Puits / captage d'eau", source: 'Gouvernement du Québec', lien: null, detail: null },
+      { titre: "Schéma d'aménagement de la MRC", source: 'MRC de Mékinac', lien: 'https://mrcmekinac.com/app/uploads/2024/03/SAR3-reduit_2.pdf', detail: null },
+    ];
+    for (let i = 0; i < REGLEMENTS.length; i++) {
+      await prisma.reglement.create({ data: { ...REGLEMENTS[i], ordre: (i + 1) * 10 } });
+    }
+  }
+  console.log('✓ Projet chalet : tuiles, pièces, règlements');
 }
 
 main()

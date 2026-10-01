@@ -2,8 +2,10 @@
 //
 // Contenu vivant par pièce du futur chalet (requis cochables, commentaires,
 // inspirations avec photo). Les 17 pièces (metadata + dimensions extraites des
-// plans TALO) sont définies côté frontend — ici on ne stocke que les entrées.
-// Toutes les routes sont protégées par auth + adultOnly (Martin + Marie-Josée).
+// plans TALO) vivent maintenant en BD (table Piece, servie par GET /projet-chalet/pieces) ;
+// ici on stocke les entrées. Accès : auth + adultOnly + « Projet chalet » —
+// propriétaires = tout ; invité = seulement s'il a la tuile « pieces », en lecture seule.
+// Note : pieceId = Piece.slug (même valeur que l'ancien id du HTML).
 //
 // - GET    /pieces/entries            -> toutes les entrées (sans photoData, flag hasPhoto)
 // - GET    /pieces/photo/:id          -> photo binaire (supporte ?token= pour <img>)
@@ -16,6 +18,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
+const { chargerAcces, exigerTuile, lectureSeuleInvite } = require('../middleware/projet-chalet-acces');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -27,7 +30,7 @@ function adultOnly(req, res, next) {
   next();
 }
 
-router.use(auth, adultOnly);
+router.use(auth, adultOnly, chargerAcces, exigerTuile('pieces'), lectureSeuleInvite);
 
 const KINDS = ['REQUIS', 'COMMENTAIRE', 'INSPIRATION'];
 

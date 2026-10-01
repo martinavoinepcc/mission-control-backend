@@ -14,8 +14,18 @@
 //     quand Prisma sera câblé — round 2).
 
 const express = require('express');
+const auth = require('../middleware/auth');
 
 const router = express.Router();
+
+// Sécurité (2026-10-01) : ces routes n'exigeaient AUCUNE connexion. Désormais :
+// connexion obligatoire + adulte de la famille seulement (pas d'enfant, pas d'invité).
+router.use(auth, (req, res, next) => {
+  if (!req.user || req.user.profile !== 'ADULT') {
+    return res.status(403).json({ erreur: 'Accès réservé aux parents.' });
+  }
+  next();
+});
 
 // -------- Config --------
 const MAKER_URL = process.env.HUBITAT_MAKER_URL || null; // ex: https://cloud.hubitat.com/api/{hubId}/apps/{appId}

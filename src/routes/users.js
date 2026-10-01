@@ -59,7 +59,9 @@ router.get('/me', auth, async (req, res) => {
 
     if (!user) return res.status(404).json({ erreur: 'Utilisateur introuvable.' });
 
-    const apps = user.apps.map((ua) => ({
+    // Une app désactivée (App.isActive = false) n'apparaît plus sur le dashboard,
+    // sans perdre ses accès ni son code : la réactiver = remettre isActive à true.
+    const apps = user.apps.filter((ua) => ua.app.isActive).map((ua) => ({
       id: ua.app.id,
       slug: ua.app.slug,
       name: ua.app.name,

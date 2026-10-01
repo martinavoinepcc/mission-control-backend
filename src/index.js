@@ -16,6 +16,7 @@ const weatherRoutes = require('./routes/weather');
 const hubitatRoutes = require('./routes/hubitat');
 const chantierRoutes = require('./routes/chantier');
 const piecesRoutes = require('./routes/pieces');
+const projetChaletRoutes = require('./routes/projet-chalet');
 const budgetRoutes = require('./routes/budget');
 const voyageRoutes = require('./routes/voyage');
 const pushRoutes = require('./routes/push');
@@ -98,6 +99,7 @@ app.use('/weather', weatherRoutes);
 app.use('/hubitat', hubitatRoutes);
 app.use('/chantier', chantierRoutes);
 app.use('/pieces', piecesRoutes);
+app.use('/projet-chalet', projetChaletRoutes); // app unifiée « Projet chalet » (2026-10-01)
 app.use('/budget', budgetRoutes);
 app.use('/voyage', voyageRoutes);
 app.use('/push', pushRoutes);
