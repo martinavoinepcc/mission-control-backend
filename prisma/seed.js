@@ -170,7 +170,7 @@ const APPS = [
     icon: 'briefcase',
     color: '#B4643C',
     isMockup: false,
-    realm: 'WORK',
+    realm: 'FAMILY', // tableau de bord principal de Martin (demande 2026-10-07) — toujours Martin seul
     url: '/carriere-app.html',
   },
 ];
