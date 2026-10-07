@@ -161,6 +161,18 @@ const APPS = [
     realm: 'WORK',
     url: 'https://qscale-opsec.onrender.com',
   },
+  {
+    // Veille emploi + candidatures (2026-10-07). PRIVÉE : Martin seulement —
+    // aucun autre membre ne reçoit cette app dans les boucles d'accès plus bas.
+    slug: 'carriere',
+    name: 'Carrière',
+    description: 'Veille emploi et suivi des candidatures — privé.',
+    icon: 'briefcase',
+    color: '#B4643C',
+    isMockup: false,
+    realm: 'WORK',
+    url: '/carriere-app.html',
+  },
 ];
 
 async function main() {
