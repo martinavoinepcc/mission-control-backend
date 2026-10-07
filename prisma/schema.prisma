@@ -981,3 +981,79 @@ model Activite {
 
   @@index([createdAt])
 }
+
+// ───── Carrière (app privée de Martin, 2026-10-07) ─────
+// Veille emploi + suivi des candidatures façon tickets. Les données sont
+// isolées par propriétaire (ownerId) ET l'app `carriere` n'est accordée qu'à
+// Martin dans UserApp. Les statuts sont des String validés dans la route
+// (pas d'enum : `prisma db push` reste additif et sans risque).
+model CarriereOffre {
+  id                Int                 @id @default(autoincrement())
+  ownerId           Int
+  cle               String              // clé de déduplication (employeur|titre normalisés, suffixe #N si republication)
+  employeur         String
+  titre             String
+  lieu              String?
+  url               String?
+  annonceId         String?
+  sources           Json                @default("[]") // [{source, id, url, vuLe}]
+  description       String?             @db.Text
+  exigences         String?             @db.Text
+  salaire           String?
+  salaireMin        Int?
+  salaireMax        Int?
+  contrat           String?
+  formule           String?
+  deplacements      String?
+  analyse           Json                @default("{}")
+  pertinence        String              @default("A_CLARIFIER")
+  dispo             String              @default("A_VERIFIER")
+  dispoPreuve       Json?
+  etape             String              @default("REPEREE")
+  decouverteLe      DateTime            @default(now())
+  derniereVerif     DateTime?
+  echeance          DateTime?
+  documents         Json                @default("[]")
+  candidature       Json                @default("{}")
+  contacts          Json                @default("[]")
+  entrevues         Json                @default("[]")
+  notes             String?             @db.Text
+  prochaineAction   String?
+  actionResponsable String?
+  actionDate        DateTime?
+  verrous           Json                @default("[]") // champs modifiés par Martin : la veille ne les écrase jamais
+  archive           Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  evenements        CarriereEvenement[]
+
+  @@unique([ownerId, cle])
+  @@index([ownerId])
+}
+
+model CarriereEvenement {
+  id        Int           @id @default(autoincrement())
+  offreId   Int
+  type      String        // CREATION | DECOUVERTE | ETAPE | DISPO | MODIF | VEILLE_MODIF | NOTE | ECHANGE | ENTREVUE | CORRECTION
+  de        String?
+  a         String?
+  date      DateTime      @default(now()) // date effective (corrigeable)
+  auteur    String
+  details   Json?
+  annule    Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  offre     CarriereOffre @relation(fields: [offreId], references: [id], onDelete: Cascade)
+
+  @@index([offreId])
+}
+
+model CarriereJournal {
+  id        Int      @id @default(autoincrement())
+  ownerId   Int
+  type      String   @default("VEILLE")
+  texte     String   @db.Text
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
