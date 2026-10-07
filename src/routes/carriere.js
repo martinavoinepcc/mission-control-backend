@@ -120,7 +120,16 @@ function same(a, b) {
     const tb = b ? new Date(b).getTime() : null;
     return ta === tb;
   }
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return canon(a ?? null) === canon(b ?? null);
+}
+
+// JSON à clés triées : Postgres (JSONB) réordonne les clés, il ne faut pas y voir un changement.
+function canon(v) {
+  if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
 }
 
 function court(v) {
