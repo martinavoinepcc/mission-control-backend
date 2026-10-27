@@ -186,6 +186,20 @@ const APPS = [
     realm: 'FAMILY', // tableau de bord principal de Martin (demande 2026-10-07) — toujours Martin seul
     url: '/carriere-app.html',
   },
+  {
+    // Simulateur vocal d'Alison (2026-10-27). PRIVÉE : Martin seulement —
+    // aucun autre membre ne reçoit cette app dans les boucles d'accès plus bas
+    // (même mécanisme que `carriere`). Icône `robot` : slug de APP_ICONS
+    // (frontend lib/icons.ts) — réceptionniste IA, pas de doublon avec les tuiles existantes.
+    slug: 'logifox-receptionniste',
+    name: 'Logifox réceptionniste',
+    description: 'Simulateur vocal local d\'Alison, réceptionniste IA — privé.',
+    icon: 'robot',
+    color: '#7C3AED',
+    isMockup: false,
+    realm: 'FAMILY', // même royaume que `carriere` — tableau de bord principal, Martin seul
+    url: '/alison-simulateur.html',
+  },
 ];
 
 async function main() {
@@ -259,7 +273,9 @@ async function main() {
   }
 
   // 3. Accès par défaut
-  // Martin : accès à tout
+  // Martin : accès à tout, y compris les apps privées (`carriere`, `martin`,
+  // `logifox-receptionniste`). Ciblé sur son courriel, pas sur le rôle ADMIN :
+  // un autre administrateur n'est pas couvert par cette boucle.
   for (const app of Object.values(createdApps)) {
     await prisma.userApp.upsert({
       where: { userId_appId: { userId: createdUsers['martin@logifox.io'].id, appId: app.id } },
@@ -269,8 +285,10 @@ async function main() {
   }
 
   // Maison + Chalet + Chantier + Budget + Pièces : Martin + Marie-Josée (parents)
-  // `carriere` et `martin` sont absents de cette liste et des suivantes :
-  // Martin seul, déjà couvert par la boucle « accès à tout » ci-dessus.
+  // `carriere`, `martin` et `logifox-receptionniste` sont absents de cette liste
+  // et des suivantes (Marie-Josée, enfants, messagerie) : Martin seul, déjà
+  // couvert par la boucle « accès à tout » ci-dessus. Les invités de Projet
+  // chalet ne reçoivent que cette app-là, ailleurs dans le code.
   // `pieces` = « Notre Chalet » — pas d'accès enfants (décision Martin 2026-08-14).
   // `projet-chalet` = app unifiée (2026-10-01) : les 2 parents en sont propriétaires.
   for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'pieces', 'projet-chalet']) {
