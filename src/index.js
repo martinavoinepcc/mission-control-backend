@@ -20,6 +20,7 @@ const projetChaletRoutes = require('./routes/projet-chalet');
 const budgetRoutes = require('./routes/budget');
 const voyageRoutes = require('./routes/voyage');
 const carriereRoutes = require('./routes/carriere');
+const martinRoutes = require('./routes/martin');
 const pushRoutes = require('./routes/push');
 const messagerieRoutes = require('./routes/messagerie');
 const messagerieSseRoutes = require('./routes/messagerie-sse');
@@ -104,6 +105,7 @@ app.use('/projet-chalet', projetChaletRoutes); // app unifiée « Projet chalet 
 app.use('/budget', budgetRoutes);
 app.use('/voyage', voyageRoutes);
 app.use('/carriere', carriereRoutes); // veille emploi + candidatures (privé Martin, 2026-10-07)
+app.use('/api/martin', martinRoutes); // projets Martin + FRIDAY (lecture seule, toujours Martin seul)
 app.use('/push', pushRoutes);
 app.use('/conversations', messagerieRoutes);
 // V2.6 : SSE realtime stream pour la messagerie. Monté sur /messagerie pour
