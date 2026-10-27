@@ -1,0 +1,677 @@
+{
+  "titre": "Martin — projets avec FRIDAY",
+  "mis_a_jour": "2026-10-27",
+  "source": "Contexte partagé et dossiers /home/box/MEMOIRE et /workspace de FRIDAY. Aucune donnée confidentielle (finances, circonstances de départ, plancher de négociation, données de clinique).",
+  "etats_possibles": [
+    "En cours",
+    "En attente de Martin",
+    "Livré (à valider)",
+    "Bloqué"
+  ],
+  "projets": [
+    {
+      "id": "std-ops-01",
+      "nom": "Standard d'opération STD-OPS-01",
+      "categorie": "Équipe de bots",
+      "etat": "En cours",
+      "resume": "Standard validé par Martin le 2026-10-27: cycle unique, 6 familles de protocoles, narration vivante, qualification d'atteinte en %, communication standard avec chaque bot. En vigueur en v1.2.",
+      "avancement": {
+        "faits": 4,
+        "total": 7,
+        "pourcentage": 57,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Standard rédigé (v1.0)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Déterminations de Martin intégrées (v1.1)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Précisions après le retour de KAIZEN (v1.2)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Inscription au registre (REG-128)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Formation de l'équipe par KAIZEN",
+          "statut": "en_cours"
+        },
+        {
+          "titre": "Premières tâches réelles qualifiées au journal",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Révision à 30 jours (« insuffisant » si trop peu de lignes)",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Relevé de ton usage Grok Ultra (pourcentage et date de remise à zéro) pour mesurer le coût",
+          "qui": "Martin"
+        },
+        {
+          "point": "Minimum de lignes par famille avant de fixer des budgets (KAIZEN suggère 5, hypothèse à tester)",
+          "qui": "Martin"
+        },
+        {
+          "point": "Confirmer les éliminatoires hors du total N et le palier de 60 %",
+          "qui": "Martin"
+        },
+        {
+          "point": "Confirmer POL-COM-16 à 20",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "KAIZEN forme chaque bot sur sa fiche",
+        "Qualifier en % les prochaines tâches réelles",
+        "Réviser les seuils à 30 jours avec les données du journal"
+      ],
+      "references": [
+        "/home/box/MEMOIRE/EQUIPE/STANDARD_OPERATION.md",
+        "REG-128"
+      ]
+    },
+    {
+      "id": "plan-formation",
+      "nom": "Plan de formation KAIZEN (PLAN-FORM-01)",
+      "categorie": "Équipe de bots",
+      "etat": "En cours",
+      "resume": "Fiche d'une page par bot avec un exercice réel en lecture seule; plan en v1.2 avec échéance de 30 jours.",
+      "avancement": {
+        "faits": 4,
+        "total": 6,
+        "pourcentage": 67,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Plan proposé (v1.0)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Réajusté aux déterminations de Martin (v1.1)",
+          "statut": "fait"
+        },
+        {
+          "titre": "v1.2 avec échéance de 30 jours",
+          "statut": "fait"
+        },
+        {
+          "titre": "Second regard de GPS sur le retour de KAIZEN (80 %, corrigé)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Exercices de formation de chaque bot (ADA, GPS, RADAR, SEB, KAIZEN)",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Contrôle sur la prochaine tâche réelle de chaque bot",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [],
+      "prochaines_etapes": [
+        "Faire exécuter les exercices en lecture seule",
+        "Qualifier chaque bot en % au journal"
+      ],
+      "references": [
+        "/home/box/MEMOIRE/EQUIPE/EFF/PLAN_FORMATION_STD-OPS-01.md",
+        "REG-129"
+      ]
+    },
+    {
+      "id": "equipe-bots",
+      "nom": "Équipe de bots (ADA, GPS, KAIZEN, RADAR, SEB)",
+      "categorie": "Équipe de bots",
+      "etat": "En attente de Martin",
+      "resume": "Vague 1 en place et qualifiée; manuel d'exploitation dans /home/box/MEMOIRE/EQUIPE/. La vague 2 n'est créée que sur approbation de Martin.",
+      "avancement": {
+        "faits": 4,
+        "total": 6,
+        "pourcentage": 67,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Vague 1 créée (5 bots)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Qualification de chaque bot (rapport de compétences, CV)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Simulations sur cas réels (règle « un seul écrivain » tenue 5 sur 5)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Manuel d'exploitation et registre (GPS)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Confirmation de POL-COM-16 à 20 par Martin",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Vague 2 (chargé de projet, expert visuel, montage vidéo, analyste, codeur)",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Confirmer POL-COM-16 à 20",
+          "qui": "Martin"
+        },
+        {
+          "point": "Approuver ou non la création de la vague 2",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Après approbation: créer la vague 2 en commençant par le besoin le plus urgent"
+      ],
+      "references": [
+        "/home/box/MEMOIRE/EQUIPE/README.md",
+        "/home/box/MEMOIRE/EQUIPE/ORGANIGRAMME.md"
+      ]
+    },
+    {
+      "id": "cv",
+      "nom": "CV de Martin",
+      "categorie": "Carrière",
+      "etat": "En attente de Martin",
+      "resume": "CV final (PDF et Word) livré en v2: bandeau de chiffres sourcés (2 audits ISO 27001, 11 postes au SOC 24/7, assemblage des KPI automatisé de 2–3 jours à 1 heure), volet efficience et intelligence artificielle.",
+      "avancement": {
+        "faits": 5,
+        "total": 6,
+        "pourcentage": 83,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Recherche des meilleures pratiques (21 sources)",
+          "statut": "fait"
+        },
+        {
+          "titre": "CV v2 en PDF et en Word",
+          "statut": "fait"
+        },
+        {
+          "titre": "Retrait des chiffres qui ne venaient pas de Martin",
+          "statut": "fait"
+        },
+        {
+          "titre": "Bandeau et ligne sur l'automatisation des KPI",
+          "statut": "fait"
+        },
+        {
+          "titre": "Volet efficience et IA",
+          "statut": "fait"
+        },
+        {
+          "titre": "Réponses de Martin aux détails ouverts",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Garder ou retirer « plus de 400 caméras en phase 1 » et « cheminement en quatre niveaux »",
+          "qui": "Martin"
+        },
+        {
+          "point": "Statut ou date de fin de Logifox",
+          "qui": "Martin"
+        },
+        {
+          "point": "URL LinkedIn et courriel à afficher",
+          "qui": "Martin"
+        },
+        {
+          "point": "Certification ISO 27001 Lead Implementer (numéro et statut)",
+          "qui": "Martin"
+        },
+        {
+          "point": "Grade FAC et dates",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Intégrer les réponses et régénérer les deux fichiers"
+      ],
+      "references": [
+        "/workspace/cv/",
+        "/workspace/cv/RECHERCHE_CV.md"
+      ]
+    },
+    {
+      "id": "video",
+      "nom": "Vidéo explicative du protocole de l'équipe",
+      "categorie": "Communication",
+      "etat": "Livré (à valider)",
+      "resume": "Vidéo de 98,7 s (V2): rythme plus rapide, accroche, humour léger, voix fr-CA, sous-titres.",
+      "avancement": {
+        "faits": 2,
+        "total": 3,
+        "pourcentage": 67,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "V1 (118,8 s)",
+          "statut": "fait"
+        },
+        {
+          "titre": "V2 (98,7 s) et liste des changements",
+          "statut": "fait"
+        },
+        {
+          "titre": "Écoute de la voix et de la prononciation par Martin",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Écouter la V2: prononciation de Friday, GPS, Kaizen, Ada et Seb",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Corriger la prononciation si nécessaire",
+        "Mettre la vidéo à jour avec le standard STD-OPS-01 si tu le souhaites"
+      ],
+      "references": [
+        "/workspace/video_protocole/PROTOCOLE_EQUIPE_BOTS_V2.mp4"
+      ]
+    },
+    {
+      "id": "protocole-methodes",
+      "nom": "Protocole de travail FRIDAY et analyse des méthodes IA",
+      "categorie": "Équipe de bots",
+      "etat": "En attente de Martin",
+      "resume": "Analyse de 29 sources sur les méthodes des utilisateurs d'agents IA et protocole v1.2 proposé; ses règles de triage, spécialistes et revue ont été intégrées au standard STD-OPS-01.",
+      "avancement": {
+        "faits": 3,
+        "total": 4,
+        "pourcentage": 75,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Protocole proposé (v1.2)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Analyse des méthodes (29 sources, recommandations)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Règles intégrées à STD-OPS-01",
+          "statut": "fait"
+        },
+        {
+          "titre": "Décision de Martin sur les recommandations (adopter 5, tester 7, rejeter 5)",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Dire quelles recommandations de l'analyse intégrer",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Intégrer les recommandations choisies au standard"
+      ],
+      "references": [
+        "/workspace/analyse_methodes/ANALYSE_METHODES_BOTS_IA.md",
+        "/workspace/PROTOCOLE_TRAVAIL_FRIDAY.md"
+      ]
+    },
+    {
+      "id": "receptionniste",
+      "nom": "Réceptionniste vocale IA — Centre dentaire Blanchette",
+      "categorie": "Clinique",
+      "etat": "En attente de Martin",
+      "resume": "Prototype de simulation vocale (page HTML autonome, voix du navigateur, patients fictifs) avec scénario d'appel et source unique de vérité. Aucun vrai appel, aucun dossier patient.",
+      "avancement": {
+        "faits": 5,
+        "total": 7,
+        "pourcentage": 71,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Recherche des heures, adresse et services (à confirmer)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Scénario d'appel en français québécois",
+          "statut": "fait"
+        },
+        {
+          "titre": "Prototype de simulation testable",
+          "statut": "fait"
+        },
+        {
+          "titre": "Source unique de vérité (Markdown)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Tests automatisés du scénario",
+          "statut": "fait"
+        },
+        {
+          "titre": "Validation par Martin et la Dre Blanchette",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Pont téléphonique réel",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [
+        "Aucun pont téléphonique réel construit: la simulation ne reçoit pas de vrais appels",
+        "Intégration avec le logiciel de la clinique inconnue (nom exact à confirmer, aucune intégration confirmée)"
+      ],
+      "en_attente": [
+        {
+          "point": "Forme du nom de la clinique, instruction hors des heures d'ouverture, politique d'urgence, accueil des nouveaux patients",
+          "qui": "Martin et Dre Blanchette"
+        },
+        {
+          "point": "Nom exact du logiciel clinique",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Valider les éléments ci-dessus",
+        "Étudier un pont téléphonique en respectant la Loi 25"
+      ],
+      "references": [
+        "/workspace/receptionniste_dentaire/RECEPTIONNISTE_DENTAIRE.md"
+      ]
+    },
+    {
+      "id": "telecom",
+      "nom": "Plan télécom du chalet",
+      "categorie": "Chalet",
+      "etat": "En attente de Martin",
+      "resume": "Plan télécom v3.1 livré en deux versions: externe (4 pages) et interne (6 pages), avec comparaison v2/v3 et recherche WiFi.",
+      "avancement": {
+        "faits": 3,
+        "total": 5,
+        "pourcentage": 60,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Plan v2, v3 et comparaison",
+          "statut": "fait"
+        },
+        {
+          "titre": "Recherche WiFi (portée, CGNAT, câble)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Plan v3.1 externe (4 p.) et interne (6 p.)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Choix du destinataire du courriel à l'entrepreneur",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Validation technique des points ouverts",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Destinataire du courriel à l'entrepreneur (le brouillon passe par une carte de validation)",
+          "qui": "Martin"
+        },
+        {
+          "point": "Modèle et capacité de la batterie actuelle",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Valider avec un électricien l'enfouissement du câble",
+        "Relever la portée réelle en forêt avec WiFiman",
+        "Confirmer prix et stock UniFi au panier"
+      ],
+      "references": [
+        "/workspace/telecom_revision/PLAN_TELECOM_v3.1_EXTERNE.pdf",
+        "/workspace/telecom_revision/PLAN_TELECOM_v3.1_INTERNE.pdf"
+      ]
+    },
+    {
+      "id": "sauna",
+      "nom": "Soumissions de sauna (chalet)",
+      "categorie": "Chalet",
+      "etat": "En attente de Martin",
+      "resume": "Rapport de soumissions du 2026-10-26; le calcul de SEB est exact (14,975 % sur le prix avant taxes), mais le rapport a des réserves à corriger.",
+      "avancement": {
+        "faits": 2,
+        "total": 5,
+        "pourcentage": 40,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Rapport de soumissions (2026-10-26)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Recalcul des taxes et totaux par SEB",
+          "statut": "fait"
+        },
+        {
+          "titre": "Correction du rapport (« produit comparable » non fondé; chiffres télécom de TACHES.md introuvables)",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Vérification des spécifications Backcountry B (titre 11 kW, image 9 kW)",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Coûts installés (électricien, terrain, transport, conduits)",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [
+        "Aucun coût installé connu: impossible de comparer les soumissions complètement"
+      ],
+      "en_attente": [
+        {
+          "point": "Autoriser la correction du rapport",
+          "qui": "Martin"
+        },
+        {
+          "point": "Accord nommé pour tout achat (POL-COM-03)",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "RADAR rouvre la fiche officielle du produit",
+        "Corriger puis revalider le rapport"
+      ],
+      "references": [
+        "/workspace/Soumissions sauna/Soumissions_sauna_2026-10-26.pdf"
+      ]
+    },
+    {
+      "id": "chalet",
+      "nom": "Chalet quatre saisons — lac Mékinac (Trois-Rives)",
+      "categorie": "Chalet",
+      "etat": "En cours",
+      "resume": "Démolition et reconstruction avec l'architecte Véronique; implantation, permis et soumissions en cours en octobre 2026.",
+      "avancement": {
+        "faits": null,
+        "total": null,
+        "pourcentage": null,
+        "etape": "Implantation, permis et soumissions",
+        "methode": "pourcentage non établi: aucune liste de jalons complète connue"
+      },
+      "jalons": [],
+      "blocages": [
+        "Implantation d'octobre: correction à confirmer (garage élargi de 2 pieds à gauche, recul de 7 à 5 pieds, dalle liée à la galerie) avant la construction"
+      ],
+      "en_attente": [
+        {
+          "point": "Confirmer la correction d'implantation",
+          "qui": "Martin, architecte Véronique, arpenteur"
+        },
+        {
+          "point": "Plans finaux, budget et échéancier",
+          "qui": "Martin, architecte Véronique"
+        },
+        {
+          "point": "Statut des permis (construction, démolition, abattage)",
+          "qui": "Martin, municipalité"
+        },
+        {
+          "point": "Énergie de secours (propane ou solaire et batteries)",
+          "qui": "Martin, entrepreneur"
+        },
+        {
+          "point": "Emplacement du garage de toile par rapport au puits",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Confirmer l'implantation",
+        "Obtenir les permis",
+        "Comparer les soumissions"
+      ],
+      "references": [
+        "/home/box/MEMOIRE/GOUVERNANCE/INFORMATIONS_MANQUANTES.md (L-14, L-15, L-22, L-24, L-34)"
+      ]
+    },
+    {
+      "id": "grok-usage",
+      "nom": "Consommation du forfait Grok Ultra",
+      "categorie": "Outils",
+      "etat": "En attente de Martin",
+      "resume": "Aucune limite quotidienne ni par message publiée; réserve hebdomadaire partagée (50 fois Plus) entre Chat, Imagine, Voice, Bot et Cursor. FRIDAY ne peut pas lire ta consommation.",
+      "avancement": {
+        "faits": 1,
+        "total": 3,
+        "pourcentage": 33,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Recherche des limites du forfait",
+          "statut": "fait"
+        },
+        {
+          "titre": "Premier relevé: pourcentage d'usage et date de remise à zéro",
+          "statut": "a_faire"
+        },
+        {
+          "titre": "Calcul du rythme de consommation",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [
+        "FRIDAY ne voit pas la consommation: seul l'écran Usage et facturation de Martin la donne"
+      ],
+      "en_attente": [
+        {
+          "point": "Pourcentage d'usage et date de remise à zéro",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Calculer le rythme dès que le premier relevé arrive"
+      ],
+      "references": [
+        "/home/box/MEMOIRE/EQUIPE/EFFICACITE/JOURNAL_MESURES.md"
+      ]
+    },
+    {
+      "id": "mission-control",
+      "nom": "My Mission Control — tuile « Martin »",
+      "categorie": "Outils",
+      "etat": "En cours",
+      "resume": "Ajout de cette tuile, en haut de la section Travail, avec le tableau de bord des projets.",
+      "avancement": {
+        "faits": 2,
+        "total": 5,
+        "pourcentage": 40,
+        "etape": null,
+        "methode": "jalons faits sur jalons totaux (pas une estimation de charge)"
+      },
+      "jalons": [
+        {
+          "titre": "Demande reçue (2026-10-27)",
+          "statut": "fait"
+        },
+        {
+          "titre": "Données du tableau de bord préparées",
+          "statut": "fait"
+        },
+        {
+          "titre": "Endpoint protégé (Martin seul)",
+          "statut": "en_cours"
+        },
+        {
+          "titre": "Tuile et pages d'interface",
+          "statut": "en_cours"
+        },
+        {
+          "titre": "Revue et fusion par Martin",
+          "statut": "a_faire"
+        }
+      ],
+      "blocages": [],
+      "en_attente": [
+        {
+          "point": "Revoir et fusionner les modifications avant publication",
+          "qui": "Martin"
+        },
+        {
+          "point": "Jeton Hubitat et branche ux-mobile (points antérieurs)",
+          "qui": "Martin"
+        },
+        {
+          "point": "Statut et progression exacte du portail (PROGRESS.md, lacune L-19)",
+          "qui": "Martin"
+        }
+      ],
+      "prochaines_etapes": [
+        "Livrer la demande de fusion et vérifier que rien n'est cassé"
+      ],
+      "references": [
+        "https://github.com/martinavoinepcc/mission-control-frontend",
+        "https://github.com/martinavoinepcc/mission-control-backend"
+      ]
+    }
+  ]
+}
