@@ -9,9 +9,9 @@
 //   - JWT du middleware auth partagé. Sans jeton, ou jeton invalide : 401.
 //   - Seul martin@logifox.io passe. Un autre membre (adulte, enfant, invité)
 //     reçoit 403, comme quand l'app `carriere` lui est refusée.
-//   - Pas de nouvelle app au catalogue et pas de lecture en base : un fichier
-//     suffit. Accorder l'app Carrière à quelqu'un d'autre ne dévoile pas ce
-//     tableau, et rien n'est servi sans authentification.
+//   - La tuile du catalogue est l'app `martin` (seed, royaume WORK), accordée
+//     au même compte seulement. Ce fichier n'est pas lu en base : rien n'est
+//     servi sans authentification.
 
 const express = require('express');
 const fs = require('fs');

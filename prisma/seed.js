@@ -162,6 +162,19 @@ const APPS = [
     url: 'https://qscale-opsec.onrender.com',
   },
   {
+    // Projets de Martin et FRIDAY (2026-10-27). PRIVÉE : Martin seulement —
+    // aucun autre membre ne reçoit cette app dans les boucles d'accès plus bas
+    // (même mécanisme que `carriere` : pas d'accès général aux autres comptes).
+    slug: 'martin',
+    name: 'Martin',
+    description: 'Projets démarrés avec FRIDAY — privé.',
+    icon: 'user',
+    color: '#1E3A5F',
+    isMockup: false,
+    realm: 'WORK',
+    url: '/apps/martin/',
+  },
+  {
     // Veille emploi + candidatures (2026-10-07). PRIVÉE : Martin seulement —
     // aucun autre membre ne reçoit cette app dans les boucles d'accès plus bas.
     slug: 'carriere',
@@ -256,6 +269,8 @@ async function main() {
   }
 
   // Maison + Chalet + Chantier + Budget + Pièces : Martin + Marie-Josée (parents)
+  // `carriere` et `martin` sont absents de cette liste et des suivantes :
+  // Martin seul, déjà couvert par la boucle « accès à tout » ci-dessus.
   // `pieces` = « Notre Chalet » — pas d'accès enfants (décision Martin 2026-08-14).
   // `projet-chalet` = app unifiée (2026-10-01) : les 2 parents en sont propriétaires.
   for (const slug of ['maison', 'chalet', 'chantier', 'budget', 'pieces', 'projet-chalet']) {
