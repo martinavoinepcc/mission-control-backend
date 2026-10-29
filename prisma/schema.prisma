@@ -1023,6 +1023,7 @@ model CarriereOffre {
   actionDate        DateTime?
   verrous           Json                @default("[]") // champs modifiés par Martin : la veille ne les écrase jamais
   archive           Boolean             @default(false)
+  favori            Boolean             @default(false) // étoile de Martin : jamais touchée par la veille
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   evenements        CarriereEvenement[]
