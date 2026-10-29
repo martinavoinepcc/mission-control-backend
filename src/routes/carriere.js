@@ -23,6 +23,7 @@
 //   POST   /carriere/offres                 -> création manuelle (409 si doublon)
 //   PATCH  /carriere/offres/:id             -> modification (verrouille les champs touchés)
 //   POST   /carriere/offres/:id/etape       -> { etape, date?, confirmation?, note? }
+//   POST   /carriere/offres/:id/favori      -> { favori: true|false }
 //   POST   /carriere/offres/:id/evenements  -> { type: NOTE|ECHANGE|ENTREVUE, date?, details }
 //   PATCH  /carriere/evenements/:id         -> { date?, annule?, raison? } (correction)
 //   GET    /carriere/export                 -> dossier complet (JSON)
@@ -516,6 +517,22 @@ router.post('/offres/:id/etape', async (req, res) => {
     res.json({ offre: u });
   } catch (e) {
     console.error('carriere etape', e);
+    res.status(500).json({ erreur: 'Erreur serveur.' });
+  }
+});
+
+// Étoile « favori » : repère rapide, sans effet sur la démarche ni sur la veille.
+router.post('/offres/:id/favori', async (req, res) => {
+  try {
+    const o = await charger(req, res);
+    if (!o) return;
+    const b = req.body || {};
+    if (typeof b.favori !== 'boolean') return res.status(400).json({ erreur: 'Champ favori (booléen) requis.' });
+    if (o.favori === b.favori) return res.json({ offre: o });
+    const u = await prisma.carriereOffre.update({ where: { id: o.id }, data: { favori: b.favori }, include: INCLURE });
+    res.json({ offre: u });
+  } catch (e) {
+    console.error('carriere favori', e);
     res.status(500).json({ erreur: 'Erreur serveur.' });
   }
 });
