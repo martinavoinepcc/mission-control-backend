@@ -72,9 +72,23 @@ const TUILES_INVITE = [
   [/^\/docs\/\d+\/raw$/, ['doc']], // verifie selon le document (voir tuileDuDoc)
 ];
 
-// A quelle tuile appartient un document : photo -> photos ; dans une serie ou plan/permis/contrat -> plans ; sinon jalons.
-function tuileDuDoc(doc) {
+// Categories de Plans & devis privees : contrats, garanties, paiements (montants, coordonnees
+// bancaires, renseignements personnels). Pour un invite, elles suivent la tuile Budget
+// (decochee par defaut), meme s'il a la tuile Plans.
+const CATEGORIES_PRIVEES = ['CONTRATS', 'PAIEMENTS'];
+
+// Ids des series dans une categorie privee (pour filtrer les documents d'un invite).
+async function seriesPrivees() {
+  const s = await prisma.planSerie.findMany({ where: { category: { in: CATEGORIES_PRIVEES } }, select: { id: true } });
+  return new Set(s.map((x) => x.id));
+}
+
+// A quelle tuile appartient un document : photo -> photos ; serie privee -> budget ;
+// dans une serie ou plan/permis/contrat -> plans ; sinon jalons.
+// `privees` = resultat de seriesPrivees() (facultatif ; sans lui, une serie privee compte comme plans).
+function tuileDuDoc(doc, privees) {
   if (doc.kind === 'PHOTO') return 'photos';
+  if (doc.serieId && privees && privees.has(doc.serieId)) return 'budget';
   if (doc.serieId || ['PLAN', 'PERMIS', 'CONTRAT'].includes(doc.kind)) return 'plans';
   return 'jalons';
 }
@@ -88,7 +102,7 @@ router.use(async (req, res, next) => {
   if (tuiles[0] === 'doc') {
     const doc = await prisma.chantierDoc.findUnique({ where: { id: toInt(req.path.split('/')[2]) }, select: { kind: true, serieId: true } });
     if (!doc) return res.status(404).json({ erreur: 'Document introuvable.' });
-    return aTuile(req, tuileDuDoc(doc)) ? next() : res.status(403).json({ erreur: "Ce document n'est pas partagé avec toi." });
+    return aTuile(req, tuileDuDoc(doc, await seriesPrivees())) ? next() : res.status(403).json({ erreur: "Ce document n'est pas partagé avec toi." });
   }
   return aTuile(req, ...tuiles) ? next() : res.status(403).json({ erreur: "Cette section n'est pas partagée avec toi." });
 });
@@ -448,7 +462,8 @@ router.get('/jalons/:id', async (req, res) => {
     if (req.chalet.invite) {
       if (!aTuile(req, 'soumissions')) jalon.soumissions = [];
       if (!aTuile(req, 'budget')) jalon.depenses = [];
-      jalon.docs = jalon.docs.filter((d) => aTuile(req, tuileDuDoc(d)));
+      const privees = await seriesPrivees();
+      jalon.docs = jalon.docs.filter((d) => aTuile(req, tuileDuDoc(d, privees)));
     }
     res.json({ jalon });
   } catch (e) {
@@ -724,7 +739,10 @@ router.get('/docs', async (req, res) => {
     orderBy: { createdAt: 'desc' },
     select: DOC_SELECT,
   });
-  if (req.chalet.invite) return res.json({ docs: docs.filter((d) => aTuile(req, tuileDuDoc(d))) });
+  if (req.chalet.invite) {
+    const privees = await seriesPrivees();
+    return res.json({ docs: docs.filter((d) => aTuile(req, tuileDuDoc(d, privees))) });
+  }
   res.json({ docs });
 });
 
@@ -832,7 +850,13 @@ router.patch('/docs/:id', async (req, res) => {
 
 // ============ PLANS & DEVIS (series versionnees) ============
 
-const PLAN_CATEGORIES = ['ARCHITECTURE', 'IMPLANTATION', 'DESIGN_INTERIEUR', 'STRUCTURE', 'ELECTRIQUE', 'MECANIQUE', 'PERMIS', 'DEVIS', 'RENDUS_3D', 'AUTRE'];
+const PLAN_CATEGORIES = ['ARCHITECTURE', 'IMPLANTATION', 'DESIGN_INTERIEUR', 'STRUCTURE', 'ELECTRIQUE', 'MECANIQUE', 'PERMIS', 'DEVIS', 'CONTRATS', 'PAIEMENTS', 'RENDUS_3D', 'AUTRE'];
+
+// Categories qu'une personne peut voir (un invite sans la tuile Budget ne voit pas les privees).
+function categoriesVisibles(req) {
+  if (!req.chalet || req.chalet.proprio || aTuile(req, 'budget')) return PLAN_CATEGORIES;
+  return PLAN_CATEGORIES.filter((c) => !CATEGORIES_PRIVEES.includes(c));
+}
 
 // Toutes les series avec leurs versions (metadata) + documents non classes (plans/permis/contrats sans serie).
 router.get('/plans', async (req, res) => {
@@ -850,7 +874,8 @@ router.get('/plans', async (req, res) => {
         select: DOC_SELECT,
       }),
     ]);
-    res.json({ series, orphans, categories: PLAN_CATEGORIES });
+    const cats = categoriesVisibles(req);
+    res.json({ series: series.filter((s) => cats.includes(s.category)), orphans, categories: cats });
   } catch (e) {
     console.error('chantier/plans GET', e);
     res.status(500).json({ erreur: 'Erreur lors du chargement des plans.' });
@@ -1093,4 +1118,7 @@ module.exports.sha256DataUrl = sha256DataUrl;
 module.exports.dataUrlSize = dataUrlSize;
 module.exports.DOC_SELECT = DOC_SELECT;
 module.exports.tuileDuDoc = tuileDuDoc;
+module.exports.seriesPrivees = seriesPrivees;
+module.exports.categoriesVisibles = categoriesVisibles;
+module.exports.CATEGORIES_PRIVEES = CATEGORIES_PRIVEES;
 module.exports.autoriserCadre = autoriserCadre;
