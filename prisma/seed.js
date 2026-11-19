@@ -445,6 +445,30 @@ const DEBOURSES_BANQUE = [
   { label: 'Déboursé 3 — Stade 3 : finition et livraison', amount: 461990, condition: 'Grille banque 100 % + inspection finale', order: 3 },
 ];
 
+// Requis de la banque par stade. source GRILLE = lu dans la « Grille pour
+// inspection progressive » (PDF COWORK) ; A_CONFIRMER = usage courant du
+// financement construction, JAMAIS lu dans une piece de la banque (Martin
+// confirme avec la banque). Les postes de la grille vivent dans AvancementItem.
+const REQUIS_BANQUE = [
+  // Stade 1
+  { stade: 1, kind: 'INSPECTION', source: 'GRILLE', responsable: 'Évaluateur de la banque', titre: 'Inspection d\u2019avancement — grille stade 1', detail: 'L\u2019évaluateur détermine le degré d\u2019achèvement de chaque poste du stade 1 (38,4 % du projet).' },
+  { stade: 1, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'À confirmer', titre: 'Demande de déboursé / avis de déboursement', detail: 'Formulaire de la banque pour libérer la tranche.' },
+  { stade: 1, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Factures de l\u2019entrepreneur pour le stade', detail: 'Factures de CDH correspondant aux travaux du stade 1.' },
+  { stade: 1, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Quittances / renonciations à hypothèque légale (sous-traitants)', detail: 'Preuve que les fournisseurs et sous-traitants du stade sont payés.' },
+  { stade: 1, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'Martin', titre: 'Permis de construction et preuve d\u2019assurance chantier', detail: 'Permis municipal 2026-0105 (30 sept. 2026) classé dans Plans & devis ; exigence exacte de la banque non lue.' },
+  // Stade 2
+  { stade: 2, kind: 'INSPECTION', source: 'GRILLE', responsable: 'Évaluateur de la banque', titre: 'Inspection d\u2019avancement — grille stade 2', detail: 'Degré d\u2019achèvement des postes du stade 2 (29,4 % du projet ; 67,8 % cumulé avec le stade 1).' },
+  { stade: 2, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'À confirmer', titre: 'Demande de déboursé / avis de déboursement', detail: 'Formulaire de la banque pour libérer la tranche.' },
+  { stade: 2, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Factures de l\u2019entrepreneur pour le stade', detail: 'Factures de CDH correspondant aux travaux du stade 2.' },
+  { stade: 2, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Quittances / renonciations à hypothèque légale (sous-traitants)', detail: 'Preuve que les fournisseurs et sous-traitants du stade sont payés.' },
+  // Stade 3
+  { stade: 3, kind: 'INSPECTION', source: 'GRILLE', responsable: 'Évaluateur de la banque', titre: 'Inspection finale — grille stade 3', detail: 'Degré d\u2019achèvement des postes du stade 3 (32,2 % du projet ; 100 % cumulé).' },
+  { stade: 3, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'À confirmer', titre: 'Demande de déboursé / avis de déboursement', detail: 'Formulaire de la banque pour libérer la tranche.' },
+  { stade: 3, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Factures finales de l\u2019entrepreneur', detail: 'Factures de CDH pour le stade 3 et le solde.' },
+  { stade: 3, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Quittances finales / renonciations à hypothèque légale', detail: 'Preuve que tous les fournisseurs et sous-traitants sont payés.' },
+  { stade: 3, kind: 'DOC', source: 'A_CONFIRMER', responsable: 'CDH', titre: 'Attestation de fin de travaux / garantie GCR', detail: 'Garantie de construction résidentielle (GCR 13556) : attestation à fournir selon la banque.' },
+];
+
 // Photos du terrain deja presentes dans le repo frontend (public/images/*).
 // Seedees comme docs PHOTO via fileUrl (pas de base64 en DB pour celles-la).
 const CHANTIER_SEED_PHOTOS = [
@@ -543,6 +567,15 @@ async function seedChantier(prisma) {
       await prisma.debourseBanque.create({ data: { projectId: project.id, ...d } });
     }
     console.log(`✓ ${DEBOURSES_BANQUE.length} déboursés banque seedés`);
+  }
+
+  // Requis de la banque — seulement si vierge (additif, jamais ecrase)
+  const reqCount = await prisma.requisBanque.count({ where: { projectId: project.id } });
+  if (reqCount === 0) {
+    for (let i = 0; i < REQUIS_BANQUE.length; i++) {
+      await prisma.requisBanque.create({ data: { projectId: project.id, ...REQUIS_BANQUE[i], order: i + 1 } });
+    }
+    console.log(`✓ ${REQUIS_BANQUE.length} requis banque seedés`);
   }
 
   // Budget total projet = estime CDH taxes incluses, seulement si encore a 0

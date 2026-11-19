@@ -66,6 +66,7 @@ const TUILES_INVITE = [
   [/^\/depenses$/, ['budget']],
   [/^\/debourses$/, ['budget']],
   [/^\/avancement$/, ['jalons']],
+  [/^\/requis$/, ['jalons', 'budget']],
   [/^\/plans$/, ['plans']],
   [/^\/docs$/, ['plans', 'photos', 'jalons']],
   [/^\/docs\/\d+\/raw$/, ['doc']], // verifie selon le document (voir tuileDuDoc)
@@ -992,6 +993,97 @@ router.delete('/debourses/:id', async (req, res) => {
   } catch (e) {
     console.error('chantier/debourses DELETE', e);
     res.status(500).json({ erreur: 'Erreur lors de la suppression du déboursé banque.' });
+  }
+});
+
+// ============ REQUIS DE LA BANQUE (par stade / deboursé) ============
+// Les postes de la grille = AvancementItem ; les documents/inspections = RequisBanque.
+// Le stade N correspond au deboursé d'ordre N.
+
+router.get('/requis', async (req, res) => {
+  try {
+    const project = await getProject();
+    const [items, requis, debourses] = await Promise.all([
+      prisma.avancementItem.findMany({ where: { projectId: project.id }, orderBy: [{ stade: 'asc' }, { order: 'asc' }] }),
+      prisma.requisBanque.findMany({ where: { projectId: project.id }, orderBy: [{ stade: 'asc' }, { order: 'asc' }] }),
+      prisma.debourseBanque.findMany({ where: { projectId: project.id }, orderBy: [{ order: 'asc' }] }),
+    ]);
+    const stades = [...new Set([...items.map((i) => i.stade), ...requis.map((r) => r.stade)])].sort((a, b) => a - b);
+    res.json({
+      stades: stades.map((n) => ({
+        stade: n,
+        // Un invité sans la tuile Budget ne voit pas les montants du financement.
+        debourse: (() => {
+          const d = debourses.find((x) => x.order === n);
+          if (!d) return null;
+          if (aTuile(req, 'budget')) return d;
+          const { amount, ...reste } = d;
+          return reste;
+        })(),
+        postes: items.filter((i) => i.stade === n),
+        requis: requis.filter((r) => r.stade === n),
+      })),
+    });
+  } catch (e) {
+    console.error('chantier/requis GET', e);
+    res.status(500).json({ erreur: 'Erreur lors du chargement des requis de la banque.' });
+  }
+});
+
+router.post('/requis', async (req, res) => {
+  try {
+    const project = await getProject();
+    const { stade, kind, titre, detail, responsable } = req.body || {};
+    if (!titre || !String(titre).trim()) return res.status(400).json({ erreur: 'Le titre du requis est requis.' });
+    const max = await prisma.requisBanque.aggregate({ where: { projectId: project.id }, _max: { order: true } });
+    const requis = await prisma.requisBanque.create({
+      data: {
+        projectId: project.id,
+        stade: Math.max(1, toInt(stade) || 1),
+        kind: kind === 'INSPECTION' ? 'INSPECTION' : 'DOC',
+        titre: String(titre).trim(),
+        detail: detail ? String(detail) : null,
+        responsable: responsable ? String(responsable) : null,
+        source: 'MARTIN',
+        order: (max._max.order || 0) + 1,
+      },
+    });
+    res.status(201).json({ requis });
+  } catch (e) {
+    console.error('chantier/requis POST', e);
+    res.status(500).json({ erreur: 'Erreur lors de la création du requis.' });
+  }
+});
+
+router.patch('/requis/:id', async (req, res) => {
+  try {
+    const id = toInt(req.params.id);
+    const { fait, titre, detail, responsable, source } = req.body || {};
+    const requis = await prisma.requisBanque.update({
+      where: { id },
+      data: {
+        ...(fait !== undefined ? { fait: !!fait, doneDate: fait ? new Date() : null } : {}),
+        ...(titre !== undefined && String(titre).trim() ? { titre: String(titre).trim() } : {}),
+        ...(detail !== undefined ? { detail: detail ? String(detail) : null } : {}),
+        ...(responsable !== undefined ? { responsable: responsable ? String(responsable) : null } : {}),
+        // Martin confirme avec la banque : A_CONFIRMER -> MARTIN (ou GRILLE si lu dans une piece)
+        ...(['GRILLE', 'A_CONFIRMER', 'MARTIN'].includes(source) ? { source } : {}),
+      },
+    });
+    res.json({ requis });
+  } catch (e) {
+    console.error('chantier/requis PATCH', e);
+    res.status(500).json({ erreur: 'Erreur lors de la mise à jour du requis.' });
+  }
+});
+
+router.delete('/requis/:id', async (req, res) => {
+  try {
+    await prisma.requisBanque.delete({ where: { id: toInt(req.params.id) } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('chantier/requis DELETE', e);
+    res.status(500).json({ erreur: 'Erreur lors de la suppression du requis.' });
   }
 });
 

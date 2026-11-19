@@ -581,6 +581,7 @@ model ChantierProject {
   debourses   DebourseBanque[]
   avancement  AvancementItem[]
   series      PlanSerie[]
+  requis      RequisBanque[]
 }
 
 model Trade {
@@ -729,6 +730,30 @@ model DebourseBanque {
   updatedAt  DateTime        @updatedAt
 
   @@index([projectId, order])
+}
+
+// Requis de la banque par stade/deboursé (documents, preuves, inspections).
+// Les POSTES de la grille ne sont PAS ici (ils vivent dans AvancementItem).
+// source = GRILLE (lu dans la grille d'inspection de la banque) ou
+// A_CONFIRMER (usage courant du financement construction, jamais lu dans une
+// piece de la banque : Martin confirme avec la banque, puis on bascule).
+model RequisBanque {
+  id        Int             @id @default(autoincrement())
+  projectId Int
+  project   ChantierProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stade     Int             @default(1) // = ordre du deboursé (1, 2, 3)
+  kind      String          @default("DOC") // DOC | INSPECTION
+  titre     String
+  detail    String?         @db.Text
+  responsable String? // qui fournit / inspecte (ex. "CDH", "Évaluateur de la banque")
+  source    String          @default("A_CONFIRMER") // GRILLE | A_CONFIRMER | MARTIN
+  fait      Boolean         @default(false)
+  doneDate  DateTime?
+  order     Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([projectId, stade, order])
 }
 
 // ============ BUDGET FAMILIAL =============
