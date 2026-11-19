@@ -57,7 +57,7 @@ const chantier = require('./chantier');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-const { PLAN_CATEGORIES, sha256DataUrl, dataUrlSize, tuileDuDoc, autoriserCadre } = chantier;
+const { PLAN_CATEGORIES, sha256DataUrl, dataUrlSize, tuileDuDoc, autoriserCadre, categoriesVisibles } = chantier;
 const PROJECT_SLUG = 'chalet';
 const HEURES_CLASSEMENT = [8, 12, 18, 22]; // heure de Montréal
 const MAX_FICHIER_B64 = 60 * 1024 * 1024; // ~40 Mo de fichier (même limite que /chantier/docs)
@@ -72,6 +72,8 @@ const CATEGORIES_PLANS = {
   MECANIQUE: { nom: 'Plomberie & mécanique', icone: 'faucet-drip' },
   PERMIS: { nom: 'Permis & licences', icone: 'stamp' },
   DEVIS: { nom: 'Devis', icone: 'file-invoice-dollar' },
+  CONTRATS: { nom: 'Contrats & garanties', icone: 'file-contract' },
+  PAIEMENTS: { nom: 'Paiements', icone: 'money-check-dollar' },
   RENDUS_3D: { nom: 'Rendus', icone: 'cube' },
   AUTRE: { nom: 'Autre', icone: 'folder' },
 };
@@ -506,7 +508,7 @@ router.get('/pieces', exigerTuile('pieces'), async (req, res) => {
 
 // ---------- Catégories de plans ----------
 router.get('/plans/categories', exigerTuile('plans'), (req, res) => {
-  res.json({ categories: PLAN_CATEGORIES.map((cle) => ({ cle, ...CATEGORIES_PLANS[cle] })) });
+  res.json({ categories: categoriesVisibles(req).map((cle) => ({ cle, ...CATEGORIES_PLANS[cle] })) });
 });
 
 // ---------- Ville & règlements ----------
@@ -777,7 +779,7 @@ router.get('/recherche', async (req, res) => {
       entrees.forEach((e) => r.push({ tuile: 'pieces', type: 'entree', titre: e.text.slice(0, 120), sous: 'Note de pièce', cible: e.pieceId }));
     }
     if (aTuile(req, 'plans')) {
-      const series = await prisma.planSerie.findMany({ where: { projectId: project.id, OR: [{ name: c }, { docs: { some: { OR: [{ fileName: c }, { title: c }] } } }] }, take: 8 });
+      const series = await prisma.planSerie.findMany({ where: { projectId: project.id, category: { in: categoriesVisibles(req) }, OR: [{ name: c }, { description: c }, { docs: { some: { OR: [{ fileName: c }, { title: c }] } } }] }, take: 8 });
       series.forEach((s) => r.push({ tuile: 'plans', type: 'serie', titre: s.name, sous: 'Plans & devis · ' + (CATEGORIES_PLANS[s.category] || {}).nom, cible: String(s.id) }));
     }
     if (aTuile(req, 'contacts', 'soumissions')) {
