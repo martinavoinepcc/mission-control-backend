@@ -799,6 +799,8 @@ enum PlanCategorie {
   PERMIS
   DEVIS
   RENDUS_3D
+  CONTRATS // contrats & garanties (GCR, acomptes) — privé : suit la tuile Budget pour les invités
+  PAIEMENTS // modalités de paiement, spécimens de chèque — privé : suit la tuile Budget
   AUTRE
 }
 
